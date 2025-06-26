@@ -1082,6 +1082,16 @@ do
 
             Utils.PrintDebug('how many crops planted: ' .. plantsTotal)
 
+            if plantsTotal >= 800 then
+                Utils.PrintDebug('has TOO many crops planted: ' .. plantsTotal .. 'removing..')
+                FarmPlot.RemovePlantsNotInTable({
+                    'Prismatic',
+                    'Divine',
+                    'Mythical',
+                    'Legendary',
+                }, plantsPhysical)
+            end
+
             autoFarmDebouce = false
         end
 
