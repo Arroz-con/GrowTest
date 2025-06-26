@@ -106,6 +106,46 @@ do
         return Utils
     end
     function __DARKLUA_BUNDLE_MODULES.b()
+        local Workspace = game:GetService('Workspace')
+        local Utils = __DARKLUA_BUNDLE_MODULES.load('a')
+        local FarmPlotPath = {CachedPlots = {}}
+        local getFarmPlotOwner = function(plot)
+            local importantFolder = plot:WaitForChild('Important')
+            local Owner = (importantFolder:WaitForChild('Data'):WaitForChild('Owner'))
+
+            return Owner.Value
+        end
+
+        function FarmPlotPath.GetFarmPlotFor(player)
+            if FarmPlotPath.CachedPlots[player.UserId] then
+                return FarmPlotPath.CachedPlots[player.UserId]
+            end
+
+            local farmsFolder = Workspace:WaitForChild('Farm')
+
+            for _, plot in farmsFolder:GetChildren()do
+                if not plot:IsA('Folder') then
+                    continue
+                end
+
+                local owner = getFarmPlotOwner(plot)
+
+                if owner == player.Name then
+                    FarmPlotPath.CachedPlots[player.UserId] = plot
+
+                    return plot
+                end
+            end
+
+            Utils.PrintDebug('Didnt find plot owner trying again')
+            task.wait(10)
+
+            return FarmPlotPath.GetFarmPlotFor(player)
+        end
+
+        return FarmPlotPath
+    end
+    function __DARKLUA_BUNDLE_MODULES.c()
         local Players = game:GetService('Players')
         local Utils = __DARKLUA_BUNDLE_MODULES.load('a')
         local ToolHandle = {}
@@ -170,7 +210,7 @@ do
 
         return ToolHandle
     end
-    function __DARKLUA_BUNDLE_MODULES.c()
+    function __DARKLUA_BUNDLE_MODULES.d()
         local ReplicatedStorage = game:GetService('ReplicatedStorage')
         local Players = game:GetService('Players')
         local DataService = (require(ReplicatedStorage:WaitForChild('Modules'):WaitForChild('DataService')))
@@ -356,27 +396,25 @@ do
 
         return Pets
     end
-    function __DARKLUA_BUNDLE_MODULES.d()
+    function __DARKLUA_BUNDLE_MODULES.e()
         local ReplicatedStorage = game:GetService('ReplicatedStorage')
-        local Workspace = game:GetService('Workspace')
         local Players = game:GetService('Players')
         local ByteNetRemotes = (require(ReplicatedStorage:WaitForChild('Modules'):WaitForChild('Remotes')))
         local InventoryService = (require(ReplicatedStorage:WaitForChild('Modules'):WaitForChild('InventoryService')))
         local MutationHandler = (require(ReplicatedStorage:WaitForChild('Modules'):WaitForChild('MutationHandler')))
-        local ToolHandle = __DARKLUA_BUNDLE_MODULES.load('b')
-        local Pets = __DARKLUA_BUNDLE_MODULES.load('c')
+        local ToolHandle = __DARKLUA_BUNDLE_MODULES.load('c')
+        local FarmPlotPath = __DARKLUA_BUNDLE_MODULES.load('b')
+        local Pets = __DARKLUA_BUNDLE_MODULES.load('d')
         local FarmPlot = {}
         local fireCollect = ByteNetRemotes.Crops.Collect.send
         local localPlayer = Players.LocalPlayer
         local gameEventsFolder = (ReplicatedStorage:WaitForChild('GameEvents'))
         local playerBackpack = localPlayer:WaitForChild('Backpack')
+        local myFarmPlot = FarmPlotPath.GetFarmPlotFor(localPlayer)
+        local important = myFarmPlot.Important
+        local plantsPhysical = important.Plants_Physical
         local rng = Random.new()
-        local getFarmPlotOwner = function(plot)
-            local importantFolder = plot:WaitForChild('Important')
-            local Owner = (importantFolder:WaitForChild('Data'):WaitForChild('Owner'))
-
-            return Owner.Value
-        end
+        local MAX_PLANTED = 800
         local plantSeed = function(position, seed)
             local x = rng:NextNumber(-10, 10)
             local z = rng:NextNumber(-10, 10)
@@ -417,25 +455,6 @@ do
             return true
         end
 
-        function FarmPlot.GetFarmPlot()
-            local farmsFolder = Workspace:WaitForChild('Farm')
-
-            for _, plot in farmsFolder:GetChildren()do
-                if not plot:IsA('Folder') then
-                    continue
-                end
-
-                local owner = getFarmPlotOwner(plot)
-
-                if owner == localPlayer.Name then
-                    return plot
-                end
-            end
-
-            task.wait(1)
-
-            return FarmPlot.GetFarmPlot()
-        end
         function FarmPlot.PlantEgg(position, eggName)
             local x = rng:NextNumber(-10, 10)
             local z = rng:NextNumber(-10, 10)
@@ -540,7 +559,7 @@ do
                 ToolHandle.EquipTool(tool.Name)
                 plantSeed(dirtPart.Position, seedName)
                 task.wait(1)
-            until not tool.Parent or tool:GetAttribute('Quantity') <= 0
+            until not tool.Parent or tool:GetAttribute('Quantity') <= 0 or #plantsPhysical:GetChildren() >= MAX_PLANTED
         end
         function FarmPlot.GetEggToolandPlant(eggsNotToPlant, dirtPart, folder)
             for _, eggTool in playerBackpack:GetChildren()do
@@ -585,7 +604,7 @@ do
 
         return FarmPlot
     end
-    function __DARKLUA_BUNDLE_MODULES.e()
+    function __DARKLUA_BUNDLE_MODULES.f()
         return {
             ['Strawberry'] = {
                 MaxLimit = 50,
@@ -613,11 +632,11 @@ do
             },
         }
     end
-    function __DARKLUA_BUNDLE_MODULES.f()
+    function __DARKLUA_BUNDLE_MODULES.g()
         local ReplicatedStorage = game:GetService('ReplicatedStorage')
         local Players = game:GetService('Players')
         local DataService = (require(ReplicatedStorage:WaitForChild('Modules'):WaitForChild('DataService')))
-        local SeedLimits = __DARKLUA_BUNDLE_MODULES.load('e')
+        local SeedLimits = __DARKLUA_BUNDLE_MODULES.load('f')
         local Inventory = {}
         local localPlayer = Players.LocalPlayer
         local playerData = DataService:GetData()
@@ -686,7 +705,7 @@ do
 
         return Inventory
     end
-    function __DARKLUA_BUNDLE_MODULES.g()
+    function __DARKLUA_BUNDLE_MODULES.h()
         local ReplicatedStorage = game:GetService('ReplicatedStorage')
         local Workspace = game:GetService('Workspace')
         local DataService = (require(ReplicatedStorage:WaitForChild('Modules'):WaitForChild('DataService')))
@@ -694,7 +713,7 @@ do
         local GearData = (require(ReplicatedStorage:WaitForChild('Data'):WaitForChild('GearData')))
         local PetEggData = (require(ReplicatedStorage:WaitForChild('Data'):WaitForChild('PetEggData')))
         local Utils = __DARKLUA_BUNDLE_MODULES.load('a')
-        local Inventory = __DARKLUA_BUNDLE_MODULES.load('f')
+        local Inventory = __DARKLUA_BUNDLE_MODULES.load('g')
         local Shops = {}
         local playerData = DataService:GetData()
         local npcsFolder = Workspace:WaitForChild('NPCS')
@@ -787,18 +806,20 @@ do
 
         return Shops
     end
-    function __DARKLUA_BUNDLE_MODULES.h()
+    function __DARKLUA_BUNDLE_MODULES.i()
         local ReplicatedStorage = game:GetService('ReplicatedStorage')
+        local Players = game:GetService('Players')
         local SeedData = (require(ReplicatedStorage:WaitForChild('Data'):WaitForChild('SeedData')))
-        local FarmPlot = __DARKLUA_BUNDLE_MODULES.load('d')
+        local FarmPlotPath = __DARKLUA_BUNDLE_MODULES.load('b')
         local PlayerStage = {}
 
         PlayerStage.IsNewPlayer = false
         PlayerStage.CanPlaceSprinker = false
 
-        local myFarmPlot = FarmPlot.GetFarmPlot()
-        local important = myFarmPlot:WaitForChild('Important')
-        local plantsPhysical = important:WaitForChild('Plants_Physical')
+        local localPlayer = Players.LocalPlayer
+        local myFarmPlot = FarmPlotPath.GetFarmPlotFor(localPlayer)
+        local important = myFarmPlot.Important
+        local plantsPhysical = important.Plants_Physical
         local getRarityPlantedCount = function(rarity)
             local count = 0
 
@@ -872,10 +893,10 @@ do
 
         return PlayerStage
     end
-    function __DARKLUA_BUNDLE_MODULES.i()
+    function __DARKLUA_BUNDLE_MODULES.j()
         local ReplicatedStorage = game:GetService('ReplicatedStorage')
         local Players = game:GetService('Players')
-        local ToolHandle = __DARKLUA_BUNDLE_MODULES.load('b')
+        local ToolHandle = __DARKLUA_BUNDLE_MODULES.load('c')
         local Utils = __DARKLUA_BUNDLE_MODULES.load('a')
         local Sprinklers = {}
         local localPlayer = Players.LocalPlayer
@@ -933,17 +954,18 @@ do
 
         return Sprinklers
     end
-    function __DARKLUA_BUNDLE_MODULES.j()
+    function __DARKLUA_BUNDLE_MODULES.k()
         local Players = game:GetService('Players')
         local VirtualInputManager = game:GetService('VirtualInputManager')
         local Workspace = game:GetService('Workspace')
-        local FarmPlot = __DARKLUA_BUNDLE_MODULES.load('d')
+        local FarmPlotPath = __DARKLUA_BUNDLE_MODULES.load('b')
+        local FarmPlot = __DARKLUA_BUNDLE_MODULES.load('e')
         local Utils = __DARKLUA_BUNDLE_MODULES.load('a')
-        local Shops = __DARKLUA_BUNDLE_MODULES.load('g')
-        local Inventory = __DARKLUA_BUNDLE_MODULES.load('f')
-        local Pets = __DARKLUA_BUNDLE_MODULES.load('c')
-        local PlayerStage = __DARKLUA_BUNDLE_MODULES.load('h')
-        local Sprinklers = __DARKLUA_BUNDLE_MODULES.load('i')
+        local Shops = __DARKLUA_BUNDLE_MODULES.load('h')
+        local Inventory = __DARKLUA_BUNDLE_MODULES.load('g')
+        local Pets = __DARKLUA_BUNDLE_MODULES.load('d')
+        local PlayerStage = __DARKLUA_BUNDLE_MODULES.load('i')
+        local Sprinklers = __DARKLUA_BUNDLE_MODULES.load('j')
         local self = {}
         local localPlayer = Players.LocalPlayer
         local playerGui = localPlayer:WaitForChild('PlayerGui')
@@ -952,7 +974,7 @@ do
         local rng = Random.new()
         local currentCamera = Workspace.CurrentCamera
         local viewportSize = currentCamera.ViewportSize
-        local myFarmPlot = FarmPlot.GetFarmPlot()
+        local myFarmPlot = FarmPlotPath.GetFarmPlotFor(localPlayer)
         local important = myFarmPlot:WaitForChild('Important')
         local plantLocations = important:WaitForChild('Plant_Locations')
         local plantsPhysical = important:WaitForChild('Plants_Physical')
@@ -1123,7 +1145,7 @@ getgenv().DEBUG_MODE = false
 local Utils = __DARKLUA_BUNDLE_MODULES.load('a')
 local files = {
     {
-        StartFarmingHandler = __DARKLUA_BUNDLE_MODULES.load('j'),
+        StartFarmingHandler = __DARKLUA_BUNDLE_MODULES.load('k'),
     },
 }
 
