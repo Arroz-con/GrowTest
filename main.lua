@@ -102,6 +102,17 @@ do
 
             return true
         end
+        function Utils.FormatNumber(num)
+            if num >= 1e9 then
+                return string.format('%.2fM', num / 1e9)
+            elseif num >= 1e6 then
+                return string.format('%.2fM', num / 1e6)
+            elseif num >= 1e3 then
+                return string.format('%.1fK', num / 1e3)
+            else
+                return string.format('%.0f', num)
+            end
+        end
 
         return Utils
     end
@@ -661,6 +672,18 @@ do
 
             return false
         end
+        function Inventory.GetGearQuantity(gearName)
+            for _, v in playerData.InventoryData do
+                if v.ItemType ~= gearName then
+                    continue
+                end
+                if v.ItemData.Uses then
+                    return v.ItemData.Uses
+                end
+            end
+
+            return 0
+        end
         function Inventory.GetFruitUUID()
             for uuid, v in playerData.InventoryData do
                 if v.ItemType ~= 'Holdable' then
@@ -672,6 +695,31 @@ do
                 if v.ItemData.Variant == 'Normal' then
                     return uuid
                 end
+            end
+
+            return nil
+        end
+        function Inventory.GetTanningMirrorUUID()
+            for uuid, v in playerData.InventoryData do
+                if v.ItemType ~= 'Tanning Mirror' then
+                    continue
+                end
+
+                return uuid
+            end
+
+            return nil
+        end
+        function Inventory.GetSprinklerUUID(name)
+            for uuid, v in playerData.InventoryData do
+                if v.ItemType ~= 'Sprinkler' then
+                    continue
+                end
+                if v.ItemData.ItemName ~= name then
+                    continue
+                end
+
+                return uuid
             end
 
             return nil
@@ -706,6 +754,32 @@ do
         return Inventory
     end
     function __DARKLUA_BUNDLE_MODULES.h()
+        local GearList = {
+            ['Advanced Sprinkler'] = {
+                CanBuy = true,
+                MaxBuyLimit = 999,
+                MaxAmountToPlant = 1,
+            },
+            ['Godly Sprinkler'] = {
+                CanBuy = true,
+                MaxBuyLimit = 999,
+                MaxAmountToPlant = 1,
+            },
+            ['Master Sprinkler'] = {
+                CanBuy = true,
+                MaxBuyLimit = 999,
+                MaxAmountToPlant = 1,
+            },
+            ['Tanning Mirror'] = {
+                CanBuy = true,
+                MaxBuyLimit = 999,
+                MaxAmountToPlant = 999,
+            },
+        }
+
+        return GearList
+    end
+    function __DARKLUA_BUNDLE_MODULES.i()
         local ReplicatedStorage = game:GetService('ReplicatedStorage')
         local Workspace = game:GetService('Workspace')
         local DataService = (require(ReplicatedStorage:WaitForChild('Modules'):WaitForChild('DataService')))
@@ -714,6 +788,7 @@ do
         local PetEggData = (require(ReplicatedStorage:WaitForChild('Data'):WaitForChild('PetEggData')))
         local Utils = __DARKLUA_BUNDLE_MODULES.load('a')
         local Inventory = __DARKLUA_BUNDLE_MODULES.load('g')
+        local GearList = __DARKLUA_BUNDLE_MODULES.load('h')
         local Shops = {}
         local playerData = DataService:GetData()
         local npcsFolder = Workspace:WaitForChild('NPCS')
@@ -793,9 +868,15 @@ do
 
             return raritys
         end
-        function Shops.BuyGears(tbl)
+        function Shops.BuyGears()
             for name, gear in playerData.GearStock.Stocks do
-                if not table.find(tbl, name) then
+                if not (GearList[name] and GearList[name].CanBuy) then
+                    continue
+                end
+
+                local amount = Inventory.GetGearQuantity(name)
+
+                if amount >= GearList[name].MaxBuyLimit then
                     continue
                 end
 
@@ -806,7 +887,7 @@ do
 
         return Shops
     end
-    function __DARKLUA_BUNDLE_MODULES.i()
+    function __DARKLUA_BUNDLE_MODULES.j()
         local ReplicatedStorage = game:GetService('ReplicatedStorage')
         local Players = game:GetService('Players')
         local SeedData = (require(ReplicatedStorage:WaitForChild('Data'):WaitForChild('SeedData')))
@@ -814,7 +895,6 @@ do
         local PlayerStage = {}
 
         PlayerStage.IsNewPlayer = false
-        PlayerStage.CanPlaceSprinker = false
 
         local localPlayer = Players.LocalPlayer
         local myFarmPlot = FarmPlotPath.GetFarmPlotFor(localPlayer)
@@ -838,14 +918,12 @@ do
             local newTable = {}
 
             if getRarityPlantedCount('Divine') >= 10 then
-                PlayerStage.CanPlaceSprinker = true
                 PlayerStage.IsNewPlayer = false
                 newTable = {
                     'Prismatic',
                     'Divine',
                 }
             elseif getRarityPlantedCount('Mythical') >= 10 then
-                PlayerStage.CanPlaceSprinker = true
                 PlayerStage.IsNewPlayer = false
                 newTable = {
                     'Prismatic',
@@ -853,7 +931,6 @@ do
                     'Mythical',
                 }
             elseif getRarityPlantedCount('Legendary') >= 10 then
-                PlayerStage.CanPlaceSprinker = false
                 PlayerStage.IsNewPlayer = false
                 newTable = {
                     'Prismatic',
@@ -862,7 +939,6 @@ do
                     'Legendary',
                 }
             elseif getRarityPlantedCount('Rare') >= 0 then
-                PlayerStage.CanPlaceSprinker = false
                 PlayerStage.IsNewPlayer = true
                 newTable = {
                     'Prismatic',
@@ -893,79 +969,121 @@ do
 
         return PlayerStage
     end
-    function __DARKLUA_BUNDLE_MODULES.j()
+    function __DARKLUA_BUNDLE_MODULES.k()
         local ReplicatedStorage = game:GetService('ReplicatedStorage')
         local Players = game:GetService('Players')
-        local ToolHandle = __DARKLUA_BUNDLE_MODULES.load('c')
+        local GearList = __DARKLUA_BUNDLE_MODULES.load('h')
+        local Inventory = __DARKLUA_BUNDLE_MODULES.load('g')
         local Utils = __DARKLUA_BUNDLE_MODULES.load('a')
-        local Sprinklers = {}
+        local FarmPlotPath = __DARKLUA_BUNDLE_MODULES.load('b')
+        local GearPlantable = {}
         local localPlayer = Players.LocalPlayer
         local gameEventsFolder = (ReplicatedStorage:WaitForChild('GameEvents'))
         local playerBackpack = localPlayer:WaitForChild('Backpack')
+        local rng = Random.new()
+        local objectsPhysical = FarmPlotPath.GetFarmPlotFor(localPlayer).Important.Objects_Physical
+        local amountPlanted = function(gearName)
+            local count = 0
 
-        function Sprinklers.PlantSprinkler(position)
-            local newPosition = position + Vector3.new(0, 0.135, 0)
+            for i, v in objectsPhysical:GetChildren()do
+                if v.Name == gearName then
+                    count = count + 1
+                end
+            end
+
+            return count
+        end
+
+        function GearPlantable.PlaceOnDirt(remoteService, position)
+            local x = rng:NextNumber(-10, 10)
+            local z = rng:NextNumber(-10, 10)
+            local newPosition = position + Vector3.new(x, 0.135, z)
+
+            if remoteService == 'TanningMirrorService' then
+                gameEventsFolder.TanningMirrorService:FireServer('Create', newPosition)
+
+                return
+            end
 
             gameEventsFolder.SprinklerService:FireServer('Create', newPosition)
-            Utils.PrintDebug('Placed Sprinkler?')
         end
-        function Sprinklers.HasSprinklerToPlant(tbl)
-            for _, v in playerBackpack:GetChildren()do
-                if not v:IsA('Tool') then
+        function GearPlantable.GetGearToolInBackpackByUUID(uuid)
+            for _, tool in playerBackpack:GetChildren()do
+                if not tool:IsA('Tool') then
                     continue
                 end
 
-                local toolName = v:GetAttribute('f')
+                local toolUUID = tool:GetAttribute('c')
 
-                if toolName and typeof(toolName) == 'string' and table.find(tbl, toolName) then
-                    return v
+                if not (toolUUID and typeof(toolUUID) == 'string') then
+                    continue
                 end
+                if toolUUID ~= uuid then
+                    continue
+                end
+
+                return tool
             end
 
             return nil
         end
-        function Sprinklers.IsSprinklerAlreadyPlanted(folder, tbl)
-            for i, v in folder:GetChildren()do
-                if not v:IsA('Model') then
-                    continue
+        function GearPlantable.IsMaxAmountPlanted(gearName)
+            if GearList[gearName] and GearList[gearName].CanBuy then
+                if amountPlanted(gearName) >= GearList[gearName].MaxAmountToPlant then
+                    return true
                 end
-                if not table.find(tbl, v.Name) then
-                    continue
-                end
-
-                return true
             end
 
             return false
         end
-        function Sprinklers.EquipSprinkerAndPlant(tbl, dirtPart)
-            local tool = Sprinklers.HasSprinklerToPlant(tbl)
+        function GearPlantable.EquipAndPlantGearTools(centerPoint, dirtPart)
+            for key, _ in GearList do
+                if GearPlantable.IsMaxAmountPlanted(key) then
+                    continue
+                end
 
-            if not tool then
-                return
-            end
-            if not ToolHandle.EquipTool(tool.Name) then
-                return
-            end
+                local uuid = Inventory.GetSprinklerUUID(key) or Inventory.GetTanningMirrorUUID()
 
-            task.wait(2)
-            Sprinklers.PlantSprinkler(dirtPart.CFrame)
+                if not uuid then
+                    continue
+                end
+
+                local tool = GearPlantable.GetGearToolInBackpackByUUID(uuid)
+
+                if not tool then
+                    continue
+                end
+
+                print(string.format('tool: %s', tostring(tool.Name)))
+                Utils.TeleportPlayerTo(centerPoint)
+                task.wait(1)
+                Utils.GetHumanoid():EquipTool(tool)
+                task.wait(1)
+
+                if tool.Name:match('Sprinkler') then
+                    print('placing Sprinkler')
+                    GearPlantable.PlaceOnDirt('SprinklerService', dirtPart.CFrame)
+                elseif tool.Name:match('Mirror') then
+                    print('placing Tanning Mirror')
+                    GearPlantable.PlaceOnDirt('TanningMirrorService', dirtPart.CFrame)
+                end
+            end
         end
 
-        return Sprinklers
+        return GearPlantable
     end
-    function __DARKLUA_BUNDLE_MODULES.k()
+    function __DARKLUA_BUNDLE_MODULES.l()
         local Players = game:GetService('Players')
         local VirtualInputManager = game:GetService('VirtualInputManager')
         local Workspace = game:GetService('Workspace')
         local FarmPlotPath = __DARKLUA_BUNDLE_MODULES.load('b')
         local FarmPlot = __DARKLUA_BUNDLE_MODULES.load('e')
         local Utils = __DARKLUA_BUNDLE_MODULES.load('a')
-        local Shops = __DARKLUA_BUNDLE_MODULES.load('h')
+        local Shops = __DARKLUA_BUNDLE_MODULES.load('i')
         local Inventory = __DARKLUA_BUNDLE_MODULES.load('g')
         local Pets = __DARKLUA_BUNDLE_MODULES.load('d')
-        local PlayerStage = __DARKLUA_BUNDLE_MODULES.load('i')
-        local Sprinklers = __DARKLUA_BUNDLE_MODULES.load('j')
+        local PlayerStage = __DARKLUA_BUNDLE_MODULES.load('j')
+        local GearPlantable = __DARKLUA_BUNDLE_MODULES.load('k')
         local self = {}
         local localPlayer = Players.LocalPlayer
         local playerGui = localPlayer:WaitForChild('PlayerGui')
@@ -981,12 +1099,6 @@ do
         local objectsPhysical = important:WaitForChild('Objects_Physical')
         local centerPoint = (myFarmPlot:WaitForChild('Center_Point'))
         local seedsToFarm = {}
-        local gearList = {
-            'Advanced Sprinkler',
-            'Godly Sprinkler',
-            'Master Sprinkler',
-            'Tanning Mirror',
-        }
         local eggsNotToBuy = {
             'Common Egg',
             'Uncommon Egg',
@@ -1020,9 +1132,8 @@ do
                 Utils.TeleportPlayerTo(centerPoint)
                 FarmPlot.LoopPlantingSameSeed(seedTool, dirtPart)
             end
-            if PlayerStage.CanPlaceSprinker and Sprinklers.HasSprinklerToPlant(gearList) and not Sprinklers.IsSprinklerAlreadyPlanted(objectsPhysical, gearList) then
-                Utils.TeleportPlayerTo(centerPoint)
-                Sprinklers.EquipSprinkerAndPlant(gearList, dirtPart)
+            if not PlayerStage.IsNewPlayer then
+                GearPlantable.EquipAndPlantGearTools(centerPoint, dirtPart)
             end
 
             FarmPlot.HarvestPlants(plantsPhysical, PlayerStage.IsNewPlayer, false)
@@ -1112,6 +1223,12 @@ do
             end)
         end
         function self.Start()
+            local queueOnTeleport = (syn and syn.queue_on_teleport) or queue_on_teleport
+
+            if queueOnTeleport then
+                queueOnTeleport('\r\n            game:Shutdown()\r\n        ')
+            end
+
             for _, v in getconnections((localPlayer.Idled))do
                 v:Disable()
             end
@@ -1127,7 +1244,7 @@ do
                     seedsToFarm = PlayerStage.GetNamesToFarm()
 
                     Shops.BuySeeds(seedsToFarm)
-                    Shops.BuyGears(gearList)
+                    Shops.BuyGears()
                     Shops.BuyEggs(eggsNotToBuy)
                     autoFarm()
                     task.wait(60)
@@ -1155,7 +1272,7 @@ getgenv().DEBUG_MODE = false
 local Utils = __DARKLUA_BUNDLE_MODULES.load('a')
 local files = {
     {
-        StartFarmingHandler = __DARKLUA_BUNDLE_MODULES.load('k'),
+        StartFarmingHandler = __DARKLUA_BUNDLE_MODULES.load('l'),
     },
 }
 
