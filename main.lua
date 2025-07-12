@@ -249,7 +249,18 @@ do
             ['6'] = 60,
             ['7'] = 75,
         }
+        local Dinos = {
+            'Raptor',
+            'Triceratops',
+            'Stegosaurus',
+            'Pterodactyl',
+            'Brontosaurus',
+            'T-Rex',
+        }
 
+        function Pets.GiftPet(player)
+            gameEventsFolder.PetGiftingService:FireServer('GivePet', player)
+        end
         function Pets.SellPet(petModel)
             gameEventsFolder.SellPet_RE:FireServer(petModel)
         end
@@ -346,6 +357,17 @@ do
             gameEventsFolder.PetsService:FireServer('UnequipPet', petUUID)
             task.wait(2)
         end
+        function Pets.RemoveAllPetsFromFarm()
+            repeat
+                for _, uuid in Pets.GetAllPetsCurrentlyFarming()do
+                    Pets.RemovePetFromFarm(uuid)
+                end
+
+                task.wait(1)
+            until #Pets.GetAllPetsCurrentlyFarming() <= 0
+
+            Utils.PrintDebug('Equpped All Pets from farming')
+        end
         function Pets.PlacePetToFarm(petUUID, position)
             gameEventsFolder.PetsService:FireServer('EquipPet', petUUID, position)
             task.wait(2)
@@ -359,6 +381,46 @@ do
                     continue
                 end
                 if Pets.IsPetAlreadyFarming(uuid) then
+                    continue
+                end
+                if v.PetData.Level >= MaxLevel then
+                    continue
+                end
+                if v.PetData.Level > petLevel then
+                    petLevel = v.PetData.Level
+                    petUUID = uuid
+                end
+            end
+
+            return petUUID
+        end
+        function Pets.GetMaxLevelPetUUID(MaxLevel)
+            for uuid, v in playerData.PetsData.PetInventory.Data do
+                if not v.PetType then
+                    continue
+                end
+                if Pets.IsPetAlreadyFarming(uuid) then
+                    continue
+                end
+                if v.PetData.Level >= MaxLevel then
+                    return uuid
+                end
+            end
+
+            return nil
+        end
+        function Pets.GetHighestPetUUIDWithCapButNoDinos(MaxLevel)
+            local petUUID
+            local petLevel = 0
+
+            for uuid, v in playerData.PetsData.PetInventory.Data do
+                if not v.PetType then
+                    continue
+                end
+                if Pets.IsPetAlreadyFarming(uuid) then
+                    continue
+                end
+                if table.find(Dinos, v.PetType) then
                     continue
                 end
                 if v.PetData.Level >= MaxLevel then
@@ -418,7 +480,7 @@ do
 
             for uuid, value in playerData.PetsData.PetInventory.Data do
                 if table.find(petSellList, value.PetType) then
-                    if value.PetData.BaseWeight > 15 then
+                    if value.PetData.BaseWeight > 10 then
                         continue
                     end
 
@@ -427,6 +489,37 @@ do
             end
 
             return sellList
+        end
+        function Pets.SellUnWantedPets(petList)
+            for _, petUUID in Pets.GetUUIDPetsToSell(petList)do
+                local petTool = Pets.GetPetToolByUUID(petUUID)
+
+                if not petTool then
+                    continue
+                end
+
+                Utils.GetHumanoid():EquipTool(petTool)
+                Utils.WaitForToolToEquip(10)
+                Pets.SellPet(petTool)
+                Utils.PrintDebug(string.format('Sold Pet: %s', tostring(petTool.Name)))
+                task.wait(1)
+            end
+        end
+        function Pets.GetUUIDPetForDinoMachine(petSellList)
+            for uuid, value in playerData.PetsData.PetInventory.Data do
+                if table.find(Dinos, value.PetType) then
+                    continue
+                end
+                if table.find(petSellList, value.PetType) then
+                    if value.PetData.BaseWeight > 10 then
+                        continue
+                    end
+
+                    return uuid
+                end
+            end
+
+            return nil
         end
         function Pets.FeedPet(petUUID)
             gameEventsFolder.ActivePetService:FireServer('Feed', petUUID)
@@ -524,6 +617,7 @@ do
         local DataService = (require(ReplicatedStorage:WaitForChild('Modules'):WaitForChild('DataService')))
         local MutationHandler = (require(ReplicatedStorage:WaitForChild('Modules'):WaitForChild('MutationHandler')))
         local SeedLimits = __DARKLUA_BUNDLE_MODULES.load('e')
+        local Utils = __DARKLUA_BUNDLE_MODULES.load('a')
         local Inventory = {}
         local localPlayer = Players.LocalPlayer
         local playerData = DataService:GetData()
@@ -569,12 +663,14 @@ do
                 end
             end
 
+            Utils.PrintDebug(string.format('%s has %s mutations', tostring(fruitModel), tostring(count)))
+
             return count
         end
         function Inventory.IsFruitNormalVariant(fruitModel)
-            local variant = (fruitModel:WaitForChild('Variant'))
+            local variant = (fruitModel:WaitForChild('Variant', 6))
 
-            if variant.Value == 'Normal' then
+            if variant and variant.Value == 'Normal' then
                 return true
             end
 
@@ -687,6 +783,7 @@ do
         local FarmPlotPath = __DARKLUA_BUNDLE_MODULES.load('b')
         local Pets = __DARKLUA_BUNDLE_MODULES.load('d')
         local Inventory = __DARKLUA_BUNDLE_MODULES.load('f')
+        local Utils = __DARKLUA_BUNDLE_MODULES.load('a')
         local FarmPlot = {}
         local fireCollect = ByteNetRemotes.Crops.Collect.send
         local localPlayer = Players.LocalPlayer
@@ -712,7 +809,7 @@ do
             local prompt = model:FindFirstChild('ProximityPrompt', true)
 
             if prompt and prompt:IsA('ProximityPrompt') and prompt.Enabled then
-                if forceHarvestFruit or isNewPlayer or Inventory.IsFruitNormalVariant(model) or Inventory.MutationCountFor(model) >= 2 then
+                if forceHarvestFruit or isNewPlayer or Inventory.IsFruitNormalVariant(model) or Inventory.MutationCountFor(model) >= 3 then
                     fireCollect({model})
                     task.wait(0.1)
                 end
@@ -768,8 +865,9 @@ do
                     continue
                 end
                 if not table.find(seedsToFarm, fruitModel.Name) then
+                    Utils.PrintDebug(string.format('Removed tree: %s', tostring(fruitModel.Name)))
                     gameEventsFolder.Remove_Item:FireServer(fruitModel.PrimaryPart)
-                    task.wait(0.1)
+                    task.wait(0.2)
                 end
             end
         end
@@ -790,7 +888,7 @@ do
 
                 local fruitsFolder = plantModel:FindFirstChild('Fruits')
 
-                if fruitsFolder then
+                if fruitsFolder and #fruitsFolder:GetChildren() >= 1 then
                     loopFruitsFolder(fruitsFolder, isNewPlayer, forceHarvestFruit)
                 else
                     if not tryCollectPlant(plantModel, isNewPlayer, forceHarvestFruit) then
@@ -1090,6 +1188,13 @@ do
             Utils.PrintDebug(string.format('Opened seedpack: %s', tostring(seedPackName)))
             ByteNetRemotes.SeedPack.Open.send(seedPackName)
         end
+        function Shops.BuyTravelingMerchantBaldEagle()
+            if playerData.TravelingMerchantShopStock.Stocks['Bald Eagle'].Stock == 0 then
+                return
+            end
+
+            gameEventsFolder.BuyTravelingMerchantShopStock:FireServer('Bald Eagle')
+        end
 
         return Shops
     end
@@ -1123,13 +1228,18 @@ do
         local updateRarityToFarm = function()
             local newTable = {}
 
-            if getRarityPlantedCount('Divine') >= 50 then
+            if getRarityPlantedCount('Prismatic') >= 10 then
+                PlayerStage.IsNewPlayer = false
+                newTable = {
+                    'Prismatic',
+                }
+            elseif getRarityPlantedCount('Divine') >= 10 then
                 PlayerStage.IsNewPlayer = false
                 newTable = {
                     'Prismatic',
                     'Divine',
                 }
-            elseif getRarityPlantedCount('Mythical') >= 50 then
+            elseif getRarityPlantedCount('Mythical') >= 10 then
                 PlayerStage.IsNewPlayer = false
                 newTable = {
                     'Prismatic',
@@ -1505,11 +1615,32 @@ do
     end
     function __DARKLUA_BUNDLE_MODULES.m()
         local ReplicatedStorage = game:GetService('ReplicatedStorage')
+        local DataService = (require(ReplicatedStorage:WaitForChild('Modules'):WaitForChild('DataService')))
+        local DinoEvent = {}
+        local playerData = DataService:GetData()
+        local gameEventsFolder = (ReplicatedStorage:WaitForChild('GameEvents'))
+
+        function DinoEvent.IsDinoEggReady()
+            return playerData.DinoMachine.RewardReady
+        end
+        function DinoEvent.IsDinoMachineRunning()
+            return playerData.DinoMachine.IsRunning
+        end
+        function DinoEvent.ClaimReward()
+            gameEventsFolder.DinoMachineService_RE:FireServer('ClaimReward')
+        end
+        function DinoEvent.GivePetToMachine()
+            gameEventsFolder.DinoMachineService_RE:FireServer('MachineInteract')
+        end
+
+        return DinoEvent
+    end
+    function __DARKLUA_BUNDLE_MODULES.n()
+        local ReplicatedStorage = game:GetService('ReplicatedStorage')
         local Players = game:GetService('Players')
         local VirtualInputManager = game:GetService('VirtualInputManager')
         local Workspace = game:GetService('Workspace')
         local DataService = (require(ReplicatedStorage:WaitForChild('Modules'):WaitForChild('DataService')))
-        local InventoryService = (require(ReplicatedStorage:WaitForChild('Modules'):WaitForChild('InventoryService')))
         local FarmPlotPath = __DARKLUA_BUNDLE_MODULES.load('b')
         local FarmPlot = __DARKLUA_BUNDLE_MODULES.load('g')
         local Utils = __DARKLUA_BUNDLE_MODULES.load('a')
@@ -1519,11 +1650,11 @@ do
         local PlayerStage = __DARKLUA_BUNDLE_MODULES.load('j')
         local GearPlantable = __DARKLUA_BUNDLE_MODULES.load('k')
         local GuiClass = __DARKLUA_BUNDLE_MODULES.load('l')
-        local self = {}
+        local DinoEvent = __DARKLUA_BUNDLE_MODULES.load('m')
+        local StartFarmingHandler = {}
         local playerData = DataService:GetData()
         local localPlayer = Players.LocalPlayer
         local playerGui = localPlayer:WaitForChild('PlayerGui')
-        local gameEventsFolder = (ReplicatedStorage:WaitForChild('GameEvents'))
         local confirmSprinker = (playerGui:WaitForChild('ConfirmSprinkler'))
         local autoFarmDebouce = false
         local rng = Random.new()
@@ -1541,10 +1672,6 @@ do
         local plantsPhysical = important:WaitForChild('Plants_Physical')
         local objectsPhysical = important:WaitForChild('Objects_Physical')
         local centerPoint = (myFarmPlot:WaitForChild('Center_Point'))
-        local eventShopList = {
-            'Oasis Egg',
-            'Hamster',
-        }
         local seedsToFarm = {}
         local petSlots = {}
         local plantsTotal
@@ -1576,7 +1703,8 @@ do
 
             return dirt
         end
-        local function autoFarm()
+
+        local autoFarm = function()
             if autoFarmDebouce then
                 return
             end
@@ -1586,6 +1714,13 @@ do
             local dirtPart = getRandomDirtPart()
 
             plantsTotal = #plantsPhysical:GetChildren()
+
+            Utils.PrintDebug(string.format('how many crops planted: %s', tostring(plantsTotal)))
+
+            if plantsTotal >= 100 then
+                Utils.PrintDebug('has TOO many crops planted: ' .. plantsTotal .. ', removing..')
+                FarmPlot.RemovePlantsNotInTable(seedsToFarm, plantsPhysical)
+            end
 
             local seedTool = FarmPlot.GetSeed(seedsToFarm)
 
@@ -1650,7 +1785,7 @@ do
                         Utils.TeleportPlayerTo(centerPoint)
                     end
 
-                    Pets.PlacePetToFarm(petUUID, centerPoint.CFrame)
+                    Pets.PlacePetToFarm(petUUID, dirtPart.CFrame)
                 end
             end
 
@@ -1660,49 +1795,40 @@ do
                 FarmPlot.HarvestPlants(seedsToFarm, PlayerStage.IsNewPlayer, true)
                 Utils.PrintDebug('Is new player so selling everything')
                 Shops.SellAllInventory()
-            elseif Workspace:GetAttribute('SummerHarvest') == true then
-                Utils.PrintDebug('Summer Havest isActive to trading in fruits')
-                FarmPlot.HarvestPlants(seedsToFarm, PlayerStage.IsNewPlayer, true)
-                Shops.TryTurnInAllSummerHarvestFruits()
+            else
                 Shops.SellAllInventory()
                 task.wait(1)
-
-                autoFarmDebouce = false
-
-                autoFarm()
-            elseif Utils.GetPlayerSheckles() < 100000000 then
-                Utils.PrintDebug('less then 100mil sheckles so selling all fruits')
-                Shops.SellAllInventory()
-                FarmPlot.HarvestPlants(seedsToFarm, PlayerStage.IsNewPlayer, true)
-                Shops.SellAllInventory()
-            elseif InventoryService:IsMaxInventory() then
-                Utils.PrintDebug('Inventory is max, selling all golden/rainbow')
-                Shops.SellGoldenAndRainbowFruitsByEquip()
             end
 
             Pets.TryEligiblePetForExtraSlot({
                 'Starfish',
             })
 
-            for _, petUUID in Pets.GetUUIDPetsToSell(PETS_TO_SELL)do
-                local petTool = Pets.GetPetToolByUUID(petUUID)
-
-                if not petTool then
-                    continue
-                end
-
-                Utils.GetHumanoid():EquipTool(petTool)
-                Utils.WaitForToolToEquip(20)
-                Pets.SellPet(petTool)
-                Utils.PrintDebug(string.format('Sold Pet: %s', tostring(petTool.Name)))
+            if DinoEvent.IsDinoEggReady() then
+                Utils.PrintDebug('Dino Egg is ready to be picked up')
+                DinoEvent.ClaimReward()
                 task.wait(1)
             end
+            if not DinoEvent.IsDinoMachineRunning() then
+                local petUUID = Pets.GetUUIDPetForDinoMachine(PETS_TO_SELL)
 
-            Utils.PrintDebug(string.format('how many crops planted: %s', tostring(plantsTotal)))
+                if petUUID then
+                    local petTool = Pets.GetPetToolByUUID(petUUID)
 
-            if plantsTotal >= 500 then
-                Utils.PrintDebug('has TOO many crops planted: ' .. plantsTotal .. 'removing..')
-                FarmPlot.RemovePlantsNotInTable(seedsToFarm, plantsPhysical)
+                    Utils.PrintDebug(string.format('DinoEvent: petTool %s', tostring(petTool)))
+
+                    if petTool then
+                        Utils.GetHumanoid():EquipTool(petTool)
+                        Utils.WaitForToolToEquip(10)
+                        DinoEvent.GivePetToMachine()
+                        Utils.PrintDebug('Gave pet to turn into egg')
+                    end
+                end
+            end
+            if Pets.GetAmountOfPetsInInventory() >= Pets.GetMaxPetsInInventory() then
+                Utils.PrintDebug('Pet Backpack is full...')
+                Pets.SellUnWantedPets(PETS_TO_SELL)
+                Utils.PrintDebug('Sold all pets in PETS_TO_SELL')
             end
 
             local seedPack = Inventory.GetSeedPackInventory()
@@ -1714,23 +1840,21 @@ do
             autoFarmDebouce = false
         end
 
-        function self.Init()
-            gameEventsFolder.SummerHarvestSubmitRemoteEvent.OnClientEvent:Connect(function(
-                num
-            )
-                print(num)
-                GuiClass.SetTextEvent(string.format('\u{1f468}\u{200d}\u{1f33e} Harvest Points: %s', tostring(num)))
-            end)
-
+        function StartFarmingHandler.Init()
             getgenv().Connections.confirmSprinker = confirmSprinker:GetPropertyChangedSignal('Enabled'):Connect(function(
             )
                 if not confirmSprinker.Enabled then
                     return
                 end
+                if not confirmSprinker:WaitForChild('Frame', 10) then
+                    return
+                end
 
-                confirmSprinker:WaitForChild('Frame')
+                local confirmButton = (confirmSprinker.Frame:WaitForChild('Confirm', 10))
 
-                local confirmButton = (confirmSprinker.Frame:WaitForChild('Confirm'))
+                if not confirmButton then
+                    return
+                end
 
                 task.wait(1)
                 firesignal((confirmButton.MouseButton1Click))
@@ -1739,7 +1863,7 @@ do
 
             localPlayer:GetAttributeChangedSignal('SessionTime'):Connect(setTimeLabelText)
         end
-        function self.Start()
+        function StartFarmingHandler.Start()
             local queueOnTeleport = (syn and syn.queue_on_teleport) or queue_on_teleport
 
             if queueOnTeleport then
@@ -1755,6 +1879,8 @@ do
                 task.wait(0.1)
                 VirtualInputManager:SendMouseButtonEvent(viewportSize.X / 2, viewportSize.Y / 2, 0, false, game, 1)
             end
+
+            Pets.RemoveAllPetsFromFarm()
 
             startingSheckles = playerData.Sheckles
 
@@ -1778,13 +1904,8 @@ do
 
                     seedsToFarm = PlayerStage.GetSeedNamesToFarm()
 
-                    Utils.PrintDebug('Starting to buy Seeds')
-                    Shops.BuyFromEventShop(eventShopList)
-                    Utils.PrintDebug('Starting to buy Seeds')
                     Shops.BuySeeds(seedsToFarm)
-                    Utils.PrintDebug('Starting to buy Gear')
                     Shops.BuyGears()
-                    Utils.PrintDebug('Starting to buy Eggs')
                     Shops.BuyEggs(EGGS_NOT_TO_BUY)
                     Utils.PrintDebug('Starting AutoFarm')
                     autoFarm()
@@ -1798,11 +1919,161 @@ do
             coroutine.resume(getgenv().AutoFarm)
         end
 
-        return self
+        return StartFarmingHandler
+    end
+    function __DARKLUA_BUNDLE_MODULES.o()
+        local Players = game:GetService('Players')
+        local Pets = __DARKLUA_BUNDLE_MODULES.load('d')
+        local Utils = __DARKLUA_BUNDLE_MODULES.load('a')
+        local PetTradingHandler = {}
+        local localPlayer = Players.LocalPlayer
+        local playerGui = localPlayer:WaitForChild('PlayerGui')
+        local giftNotification = (playerGui:WaitForChild('Gift_Notification'))
+        local giftPet = function(character)
+            if not character then
+                return false
+            end
+
+            local player = Players:GetPlayerFromCharacter(character)
+
+            if not player then
+                return false
+            end
+
+            local humanoidRootPart = (character:FindFirstChild('HumanoidRootPart'))
+
+            if not humanoidRootPart then
+                return false
+            end
+
+            local petUUID = Pets.GetMaxLevelPetUUID(75)
+
+            if not petUUID then
+                return false
+            end
+
+            local petTool = Pets.GetPetToolByUUID(petUUID)
+
+            if not petTool then
+                return false
+            end
+
+            Utils.GetHumanoid():EquipTool(petTool)
+            Utils.WaitForToolToEquip(5)
+
+            if Utils.TeleportPlayerTo(humanoidRootPart) then
+                Pets.GiftPet(player)
+                Utils.PrintDebug(string.format('Traded: %s Pet: %s', tostring(player.Name), tostring(petTool.Name)))
+
+                return true
+            end
+
+            return false
+        end
+        local startTrading = function(character)
+            task.wait(1)
+            Utils.PrintDebug(string.format('Trading %s', tostring(character)))
+            task.spawn(function()
+                while true do
+                    local hasPet = giftPet(character)
+
+                    if not hasPet then
+                        break
+                    end
+
+                    task.wait(10)
+                end
+
+                Utils.PrintDebug('Doesnt have anymore pets to trade')
+            end)
+        end
+
+        function PetTradingHandler.Init()
+            giftNotification:WaitForChild('Frame').ChildAdded:Connect(function(
+                child
+            )
+                if child.Name ~= 'Gift_Notification' then
+                    return
+                end
+
+                local notification = child
+
+                if not notification:WaitForChild('Holder', 10) then
+                    return
+                end
+                if not notification.Holder:WaitForChild('Frame', 10) then
+                    return
+                end
+
+                local acceptButton = (notification.Holder.Frame:WaitForChild('Accept', 10))
+
+                if not acceptButton then
+                    return
+                end
+
+                firesignal((acceptButton.MouseButton1Click))
+                Utils.PrintDebug('clicked on button')
+            end)
+
+            if localPlayer.Name == 'SoaveCorsa099' then
+                return
+            end
+
+            Players.PlayerAdded:Connect(function(player)
+                if player.Name ~= 'SoaveCorsa099' then
+                    return
+                end
+
+                Utils.PrintDebug('Mule joined game. sending trade')
+                player.CharacterAdded:Connect(function(character)
+                    startTrading(character)
+                end)
+            end)
+        end
+        function PetTradingHandler.Start()
+            repeat
+                local notification = (giftNotification:WaitForChild('Frame'):FindFirstChild('Gift_Notification'))
+
+                if not notification then
+                    return
+                end
+                if not notification:FindFirstChild('Holder') then
+                    return
+                end
+                if not notification.Holder:FindFirstChild('Frame') then
+                    return
+                end
+
+                local acceptButton = (notification.Holder.Frame:FindFirstChild('Accept'))
+
+                if not acceptButton then
+                    return
+                end
+
+                firesignal((acceptButton.MouseButton1Click))
+                Utils.PrintDebug('clicked on button')
+                task.wait(1)
+            until not notification
+
+            if localPlayer.Name == 'SoaveCorsa099' then
+                return
+            end
+
+            for _, player in Players:GetPlayers()do
+                if player.Name ~= 'SoaveCorsa099' then
+                    continue
+                end
+                if not player.Character then
+                    continue
+                end
+
+                startTrading(player.Character)
+            end
+        end
+
+        return PetTradingHandler
     end
 end
-
-getgenv().Connections = {}
 
 if not game:IsLoaded() then
     game.Loaded:Wait()
@@ -1811,6 +2082,7 @@ if game.PlaceId ~= 126884695634066 then
     return
 end
 
+getgenv().Connections = {}
 getgenv().DEBUG_MODE = false
 getgenv().CONFIGS = {
     ['USE_SELECTED_PETS_ONLY'] = true,
@@ -1818,11 +2090,11 @@ getgenv().CONFIGS = {
         'Starfish',
         'Sea Turtle',
         'Capybara',
+        'Grey Mouse',
+        'Brown Mouse',
+        'T-Rex',
     },
-    ['EGGS_NOT_TO_BUY'] = {
-        'Common Egg',
-        'Uncommon Egg',
-    },
+    ['EGGS_NOT_TO_BUY'] = {},
     ['PETS_TO_SELL'] = {
         'Dog',
         'Golden Lab',
@@ -1833,20 +2105,25 @@ getgenv().CONFIGS = {
         'Snail',
         'Giant Ant',
         'Caterpillar',
-        'Grey Mouse',
-        'Brown Mouse',
         'Sand Snake',
         'Mole',
         'Hedgehog',
         'Pig',
         'Frog',
+        'Raptor',
+        'Triceratops',
+        'Stegosaurus',
+        'Pterodactyl',
     },
 }
 
 local Utils = __DARKLUA_BUNDLE_MODULES.load('a')
 local files = {
     {
-        StartFarmingHandler = __DARKLUA_BUNDLE_MODULES.load('m'),
+        StartFarmingHandler = __DARKLUA_BUNDLE_MODULES.load('n'),
+    },
+    {
+        PetTradingHandler = __DARKLUA_BUNDLE_MODULES.load('o'),
     },
 }
 
@@ -1857,7 +2134,7 @@ for index, _table in ipairs(files)do
         if files[index][moduleName].Init then
             Utils.PrintDebug(string.format('INITIALIZING: %s', tostring(moduleName)))
             files[index][moduleName].Init()
-            task.wait(2)
+            task.wait(1)
         end
     end
 end
@@ -1869,7 +2146,7 @@ for index, _table in ipairs(files)do
         if files[index][moduleName].Start then
             Utils.PrintDebug(string.format('STARTING: %s', tostring(moduleName)))
             files[index][moduleName].Start()
-            task.wait(2)
+            task.wait(1)
         end
     end
 end
