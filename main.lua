@@ -242,12 +242,12 @@ do
         local backPack = localPlayer:WaitForChild('Backpack')
         local playerData = DataService:GetData()
         local gameEventsFolder = (ReplicatedStorage:WaitForChild('GameEvents'))
-        local petUnlockableSlots = {
-            ['3'] = 20,
-            ['4'] = 30,
-            ['5'] = 45,
-            ['6'] = 60,
-            ['7'] = 75,
+        local unlockableSlots = {
+            ['1'] = 20,
+            ['2'] = 30,
+            ['3'] = 45,
+            ['4'] = 60,
+            ['5'] = 75,
         }
         local Dinos = {
             'Raptor',
@@ -264,7 +264,7 @@ do
         function Pets.SellPet(petModel)
             gameEventsFolder.SellPet_RE:FireServer(petModel)
         end
-        function Pets.GetMaxEggsInFarm()
+        function Pets.GetMaxEggsCanFarm()
             return playerData.PetsData.MutableStats.MaxEggsInFarm or 0
         end
         function Pets.GetMaxEquippedPets()
@@ -331,6 +331,22 @@ do
             end
 
             return false
+        end
+        function Pets.GetAmountOfEggsPlanted(folder)
+            local count = 0
+
+            for _, v in folder:GetChildren()do
+                if not v:IsA('Model') then
+                    continue
+                end
+                if v:GetAttribute('OBJECT_TYPE') ~= 'PetEgg' then
+                    continue
+                end
+
+                count = count + 1
+            end
+
+            return count
         end
         function Pets.IsMaxPetsEquipped()
             local petsData = playerData.PetsData
@@ -475,23 +491,24 @@ do
         function Pets.GetPetDataFor(petUUID)
             return playerData.PetsData.PetInventory.Data[petUUID]
         end
-        function Pets.GetUUIDPetsToSell(petSellList)
+        function Pets.GetUUIDPetsToSell(keepList)
             local sellList = {}
 
             for uuid, value in playerData.PetsData.PetInventory.Data do
-                if table.find(petSellList, value.PetType) then
-                    if value.PetData.BaseWeight > 10 then
-                        continue
-                    end
-
-                    table.insert(sellList, uuid)
+                if table.find(keepList, value.PetType) then
+                    continue
                 end
+                if value.PetData.BaseWeight > 10 then
+                    continue
+                end
+
+                table.insert(sellList, uuid)
             end
 
             return sellList
         end
-        function Pets.SellUnWantedPets(petList)
-            for _, petUUID in Pets.GetUUIDPetsToSell(petList)do
+        function Pets.SellUnWantedPets(keepList)
+            for _, petUUID in Pets.GetUUIDPetsToSell(keepList)do
                 local petTool = Pets.GetPetToolByUUID(petUUID)
 
                 if not petTool then
@@ -505,18 +522,19 @@ do
                 task.wait(1)
             end
         end
-        function Pets.GetUUIDPetForDinoMachine(petSellList)
+        function Pets.GetUUIDPetForDinoMachine(keepList)
             for uuid, value in playerData.PetsData.PetInventory.Data do
                 if table.find(Dinos, value.PetType) then
                     continue
                 end
-                if table.find(petSellList, value.PetType) then
-                    if value.PetData.BaseWeight > 10 then
-                        continue
-                    end
-
-                    return uuid
+                if table.find(keepList, value.PetType) then
+                    continue
                 end
+                if value.PetData.BaseWeight > 10 then
+                    continue
+                end
+
+                return uuid
             end
 
             return nil
@@ -560,24 +578,53 @@ do
 
             return petNames
         end
-        function Pets.TurnInPetForExtraSlot(uuid)
-            gameEventsFolder.UnlockSlotFromPet:FireServer(uuid, 'Pet')
-            Utils.PrintDebug('Unlocked Pet Slot')
+        function Pets.TurnInPetForExtraSlot(uuid, slotName)
+            gameEventsFolder.UnlockSlotFromPet:FireServer(uuid, slotName)
+            Utils.PrintDebug('Unlocked slotName')
         end
-        function Pets.TryEligiblePetForExtraSlot(pets)
+        function Pets.TryExtraSlotUpgrade(pets, purchasedSlotName, slotName)
+            local slotAmount = playerData.PetsData[purchasedSlotName]
+
+            if typeof(slotAmount) ~= 'number' then
+                Utils.PrintDebug(string.format('The type of %s is not a number', tostring(slotAmount)))
+
+                return
+            end
+            if slotAmount >= 5 then
+                return true
+            end
+
+            Utils.PrintDebug(string.format('%s: isnt Max yet so checking if pet meets level required', tostring(purchasedSlotName)))
+
             for uuid, value in playerData.PetsData.PetInventory.Data do
                 if not table.find(pets, value.PetType) then
                     continue
                 end
-
-                Utils.PrintDebug(string.format('pet level: %s,  unlock level: %s', tostring(value.PetData.Level), tostring(petUnlockableSlots[tostring(Pets.GetMaxEquippedPets())])))
-
-                if value.PetData.Level == petUnlockableSlots[tostring(Pets.GetMaxEquippedPets())] then
+                if value.PetData.Level == unlockableSlots[tostring(slotAmount)] then
+                    Utils.PrintDebug(string.format('pet level: %s,  unlock level: %s', tostring(value.PetData.Level), tostring(unlockableSlots[tostring(slotAmount)])))
                     Pets.RemovePetFromFarm(uuid)
-                    Pets.TurnInPetForExtraSlot(uuid)
-
-                    return
+                    Pets.TurnInPetForExtraSlot(uuid, slotName)
+                    task.wait(3)
                 end
+            end
+
+            if playerData.PetsData[purchasedSlotName] >= 5 then
+                return true
+            end
+
+            Utils.PrintDebug(string.format('%s: still need more slots to unlock', tostring(purchasedSlotName)))
+
+            return false
+        end
+        function Pets.TryEligiblePetForExtraSlots(pets)
+            if not Pets.TryExtraSlotUpgrade(pets, 'PurchasedEggSlots', 'Egg') then
+                return
+            end
+            if not Pets.TryExtraSlotUpgrade(pets, 'PurchasedEquipSlots', 'Pet') then
+                return
+            end
+            if not Pets.TryExtraSlotUpgrade(pets, 'PurchasedPetInventorySlots', 'PetInventory') then
+                return
             end
         end
 
@@ -840,6 +887,7 @@ do
             local newPosition = position + Vector3.new(x, 0.135, z)
 
             gameEventsFolder.PetEggService:FireServer('CreateEgg', newPosition)
+            Utils.PrintDebug(string.format('PlantedEgg: %s', tostring(eggName)))
         end
         function FarmPlot.IsRmoveablePlantInGarden(seedsToFarm, folder)
             for _, fruitModel in folder:GetChildren()do
@@ -1110,6 +1158,7 @@ do
 
                 Utils.PrintDebug(string.format('buying egg: %s', tostring(playerData.PetEggStock.Stocks[i].EggName)))
                 BuyPetEggRemote:FireServer(i)
+                task.wait(0.1)
             end
         end
         function Shops.GetAllSeedRaritys()
@@ -1663,7 +1712,7 @@ do
         local USE_SELECTED_PETS_ONLY = getgenv().CONFIGS.USE_SELECTED_PETS_ONLY
         local SELECTED_FARMING_PETS = getgenv().CONFIGS.SELECTED_FARMING_PETS
         local EGGS_NOT_TO_BUY = getgenv().CONFIGS.EGGS_NOT_TO_BUY
-        local PETS_TO_SELL = getgenv().CONFIGS.PETS_TO_SELL
+        local PETS_TO_KEEP = getgenv().CONFIGS.PETS_TO_KEEP
         local currentCamera = Workspace.CurrentCamera
         local viewportSize = currentCamera.ViewportSize
         local myFarmPlot = FarmPlotPath.GetFarmPlotFor(localPlayer)
@@ -1675,7 +1724,7 @@ do
         local seedsToFarm = {}
         local petSlots = {}
         local plantsTotal
-        local MAX_PET_LEVEL = 75
+        local MAX_PET_LEVEL = getgenv().CONFIGS.PET_MAX_LEVEL or 100
         local setTimeLabelText = function()
             local currentTime = DateTime.now().UnixTimestamp
             local timeElapsed = currentTime - startingTime
@@ -1687,7 +1736,7 @@ do
         end
         local updateGui = function()
             GuiClass.SetTextSheckles(string.format('\u{1f4b8} Sheckles: %s (%s)', tostring(Utils.FormatNumber(playerData.Sheckles)), tostring(Utils.FormatNumber(setShecklesDiff()))))
-            GuiClass.SetTextPetsEquipped(string.format('\u{1f436} Equipped: %s/%s', tostring(#Pets.GetAllPetsCurrentlyFarming()), tostring(Pets.GetMaxEquippedPets())))
+            GuiClass.SetTextPetsEquipped(string.format('\u{1f436} %s/%s', tostring(#Pets.GetAllPetsCurrentlyFarming()), tostring(Pets.GetMaxEquippedPets())) .. string.format('| \u{1f95a} %s/%s', tostring(Pets.GetAmountOfEggsPlanted(objectsPhysical)), tostring(Pets.GetMaxEggsCanFarm())))
             GuiClass.SetTextPetsInInventory(string.format('\u{1f392} Pets backpack: %s/%s ', tostring(Pets.GetAmountOfPetsInInventory()), tostring(Pets.GetMaxPetsInInventory())) .. string.format('| Fruits: %s/%s ', tostring(Inventory.GetAmountOfFruits()), tostring(Inventory.GetMaxBackpackHold())))
             GuiClass.SetTextPlantsPlanted(string.format('\u{1f334} Plants Planted: %s/800', tostring(plantsTotal or 0)))
         end
@@ -1731,13 +1780,13 @@ do
             if not PlayerStage.IsNewPlayer then
                 GearPlantable.EquipAndPlantGearTools(centerPoint, dirtPart)
             end
-
-            local maxPets = Pets.IsMaxPetsInInventory()
-
-            if not maxPets and FarmPlot.HasEggToPlant(EGGS_NOT_TO_BUY) and not Pets.IsMaxEggPlanted(objectsPhysical) then
+            if FarmPlot.HasEggToPlant(EGGS_NOT_TO_BUY) and not Pets.IsMaxEggPlanted(objectsPhysical) then
                 Utils.TeleportPlayerTo(centerPoint)
                 FarmPlot.GetEggToolandPlant(EGGS_NOT_TO_BUY, dirtPart, objectsPhysical)
             end
+
+            local maxPets = Pets.IsMaxPetsInInventory()
+
             if not maxPets then
                 Pets.HatchPets(objectsPhysical)
             end
@@ -1800,7 +1849,7 @@ do
                 task.wait(1)
             end
 
-            Pets.TryEligiblePetForExtraSlot({
+            Pets.TryEligiblePetForExtraSlots({
                 'Starfish',
             })
 
@@ -1810,7 +1859,7 @@ do
                 task.wait(1)
             end
             if not DinoEvent.IsDinoMachineRunning() then
-                local petUUID = Pets.GetUUIDPetForDinoMachine(PETS_TO_SELL)
+                local petUUID = Pets.GetUUIDPetForDinoMachine(PETS_TO_KEEP)
 
                 if petUUID then
                     local petTool = Pets.GetPetToolByUUID(petUUID)
@@ -1827,8 +1876,8 @@ do
             end
             if Pets.GetAmountOfPetsInInventory() >= Pets.GetMaxPetsInInventory() then
                 Utils.PrintDebug('Pet Backpack is full...')
-                Pets.SellUnWantedPets(PETS_TO_SELL)
-                Utils.PrintDebug('Sold all pets in PETS_TO_SELL')
+                Pets.SellUnWantedPets(PETS_TO_KEEP)
+                Utils.PrintDebug('Sold all pets except pets in PETS_TO_KEEP')
             end
 
             local seedPack = Inventory.GetSeedPackInventory()
@@ -1929,6 +1978,7 @@ do
         local localPlayer = Players.LocalPlayer
         local playerGui = localPlayer:WaitForChild('PlayerGui')
         local giftNotification = (playerGui:WaitForChild('Gift_Notification'))
+        local MAX_PET_LEVEL = getgenv().CONFIGS.PET_MAX_LEVEL or 100
         local giftPet = function(character)
             if not character then
                 return false
@@ -1946,7 +1996,7 @@ do
                 return false
             end
 
-            local petUUID = Pets.GetMaxLevelPetUUID(75)
+            local petUUID = Pets.GetMaxLevelPetUUID(MAX_PET_LEVEL)
 
             if not petUUID then
                 return false
@@ -2083,37 +2133,31 @@ if game.PlaceId ~= 126884695634066 then
 end
 
 getgenv().Connections = {}
-getgenv().DEBUG_MODE = false
+getgenv().DEBUG_MODE = true
 getgenv().CONFIGS = {
     ['USE_SELECTED_PETS_ONLY'] = true,
+    ['PET_MAX_LEVEL'] = 75,
     ['SELECTED_FARMING_PETS'] = {
         'Starfish',
-        'Sea Turtle',
-        'Capybara',
-        'Grey Mouse',
-        'Brown Mouse',
-        'T-Rex',
+        'Blood Kiwi',
+        'Chicken',
     },
-    ['EGGS_NOT_TO_BUY'] = {},
-    ['PETS_TO_SELL'] = {
-        'Dog',
-        'Golden Lab',
-        'Bunny',
-        'Seagull',
-        'Crab',
-        'Red Giant Ant',
-        'Snail',
-        'Giant Ant',
-        'Caterpillar',
-        'Sand Snake',
-        'Mole',
-        'Hedgehog',
-        'Pig',
-        'Frog',
-        'Raptor',
-        'Triceratops',
-        'Stegosaurus',
-        'Pterodactyl',
+    ['EGGS_NOT_TO_BUY'] = {
+        'Common Egg',
+    },
+    ['PETS_TO_KEEP'] = {
+        'Starfish',
+        'Chicken',
+        'Blood Kiwi',
+        'Butterfly',
+        'Mimic Octoplus',
+        'Hyacinth Macaw',
+        'Red Fox',
+        'T-Rex',
+        'Dragonfly',
+        'Spinosaurus',
+        'Disco Bee',
+        'Queen Bee',
     },
 }
 
