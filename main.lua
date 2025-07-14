@@ -127,6 +127,191 @@ do
         return Utils
     end
     function __DARKLUA_BUNDLE_MODULES.b()
+        local ReplicatedStorage = cloneref(game:GetService('ReplicatedStorage'))
+        local Players = cloneref(game:GetService('Players'))
+        local HttpService = cloneref(game:GetService('HttpService'))
+        local PetRegistry = (require(ReplicatedStorage:WaitForChild('Data'):WaitForChild('PetRegistry')))
+        local Utils = __DARKLUA_BUNDLE_MODULES.load('a')
+        local WebHookHandler = {}
+
+        WebHookHandler.UniqueString = ''
+
+        local localPlayer = Players.LocalPlayer
+        local gameEventsFolder = (ReplicatedStorage:WaitForChild('GameEvents'))
+        local vpsName = getgenv().WEBHOOK.VPS_NAME or 'None'
+        local SELECTED_FARMING_PETS = getgenv().CONFIGS.SELECTED_FARMING_PETS
+        local PETS_TO_KEEP = getgenv().CONFIGS.PETS_TO_KEEP
+        local getThumbnailImage = function(rbxassetidLink)
+            local assetid = rbxassetidLink:match('rbxassetid://(%d+)')
+
+            if not assetid then
+                return nil
+            end
+
+            local url = string.format(
+[[https://thumbnails.roblox.com/v1/assets?assetIds=%s&size=420x420&format=png&isCircular=false]], tostring(assetid))
+            local request = request or syn.request
+            local headers = {
+                ['Content-Type'] = 'application/json',
+            }
+            local requestOptions = {
+                Url = url,
+                Method = 'GET',
+                Headers = headers,
+            }
+            local success, result = pcall(function()
+                return request(requestOptions).Body
+            end)
+
+            if success then
+                local data = HttpService:JSONDecode(result)
+
+                if data and data.data and data.data[1] and data.data[1].imageUrl then
+                    return data.data[1].imageUrl
+                end
+            end
+
+            return nil
+        end
+
+        function WebHookHandler.SendWebHook(petName, petData, itemDataDB)
+            local imageUrl = getThumbnailImage(itemDataDB.Icon)
+            local embed = {
+                title = string.format('NEW PET DETECTED!\n[%s] %s', tostring(vpsName), tostring(localPlayer.Name)),
+                description = string.format('%s)', tostring(itemDataDB.Description)),
+                color = 0xccff,
+                fields = {
+                    {
+                        name = 'Pet Name',
+                        value = petName,
+                        inline = true,
+                    },
+                    {
+                        name = 'Level',
+                        value = tostring(petData.Level),
+                        inline = true,
+                    },
+                    {
+                        name = 'Rarity',
+                        value = itemDataDB.Rarity,
+                        inline = true,
+                    },
+                    {
+                        name = 'Hatched From',
+                        value = petData.HatchedFrom,
+                        inline = true,
+                    },
+                    {
+                        name = 'Sell Price',
+                        value = tostring(itemDataDB.SellPrice),
+                        inline = true,
+                    },
+                    {
+                        name = 'BaseWeight',
+                        value = tostring(petData.BaseWeight),
+                        inline = true,
+                    },
+                },
+                footer = {
+                    text = string.format('\nShittyHub - %s', tostring(DateTime.now():FormatLocalTime('LLL', 'en-us'))),
+                },
+            }
+
+            if imageUrl then
+                embed.thumbnail = {url = imageUrl}
+            end
+
+            local dataFrame = {
+                username = 'Pet Notifier',
+                avatar_url = string.format(
+[[https://www.roblox.com/headshot-thumbnail/image?userId=%s&width=420&height=420&format=png]], tostring(localPlayer.UserId)),
+                embeds = {embed},
+            }
+            local request = request or syn.request
+            local headers = {
+                ['Content-Type'] = 'application/json',
+            }
+            local jsonData = HttpService:JSONEncode(dataFrame)
+            local requestData = {
+                Url = getgenv().WEBHOOK.URL,
+                Method = 'POST',
+                Headers = headers,
+                Body = jsonData,
+            }
+            local success, result = pcall(function()
+                return request(requestData)
+            end)
+
+            if success then
+                Utils.PrintDebug(string.format('Request Succesful: %s', tostring(result)))
+            else
+                Utils.PrintDebug(string.format('Request Failed: %s', tostring(result)))
+            end
+
+            return nil
+        end
+
+        local getItemDefaultData = function(petName)
+            return PetRegistry.PetList[petName] or nil
+        end
+
+        function WebHookHandler.Init()
+            if not (getgenv().WEBHOOK and getgenv().WEBHOOK.URL) then
+                Utils.PrintDebug('NO Webhook provided')
+            end
+
+            local webhookUrl = string.match(getgenv().WEBHOOK.URL, 'https://discord.com/api/webhooks/')
+
+            if not webhookUrl then
+                Utils.PrintDebug(
+[[Webhook url not valid, needs format https://discord.com/api/webhooks/ect]])
+            end
+
+            gameEventsFolder.DataStream.OnClientEvent:Connect(function(
+                eventType,
+                profileName,
+                updatedData
+            )
+                if eventType ~= 'UpdateData' then
+                    return
+                end
+                if profileName ~= string.format('%s_DataServiceProfile', tostring(localPlayer.Name)) then
+                    return
+                end
+
+                for _, entry in ipairs(updatedData)do
+                    local path = entry[1]
+                    local data = entry[2]
+
+                    if typeof(data) == 'table' and string.find(path, 'PetInventory') then
+                        if not (data.PetType and data.PetData) then
+                            return
+                        end
+                        if table.find(SELECTED_FARMING_PETS, data.PetType) then
+                            return
+                        end
+                        if not table.find(PETS_TO_KEEP, data.PetType) then
+                            return
+                        end
+
+                        local itemDefaultData = getItemDefaultData(data.PetType)
+
+                        if not itemDefaultData then
+                            Utils.PrintDebug('itemDefaultData: Not able to get data!')
+
+                            return
+                        end
+
+                        Utils.PrintDebug('Processing webhook data')
+                        WebHookHandler.SendWebHook(data.PetType, data.PetData, itemDefaultData)
+                    end
+                end
+            end)
+        end
+
+        return WebHookHandler
+    end
+    function __DARKLUA_BUNDLE_MODULES.c()
         local Workspace = game:GetService('Workspace')
         local Utils = __DARKLUA_BUNDLE_MODULES.load('a')
         local FarmPlotPath = {CachedPlots = {}}
@@ -166,82 +351,22 @@ do
 
         return FarmPlotPath
     end
-    function __DARKLUA_BUNDLE_MODULES.c()
-        local Players = game:GetService('Players')
-        local Utils = __DARKLUA_BUNDLE_MODULES.load('a')
-        local ToolHandle = {}
-        local localPlayer = Players.LocalPlayer
-        local playerBackpack = localPlayer:WaitForChild('Backpack')
-        local isToolAlreadyEquipped = function(toolName)
-            local hasTool = Utils.GetCharacter():FindFirstChild(toolName)
-
-            if not (hasTool and hasTool:IsA('Tool')) then
-                return false
-            end
-
-            return true
-        end
-        local waitForTool = function(tool)
-            local isToolEquipped
-            local count = 0
-            local MAX_COUNT = 20
-
-            repeat
-                isToolEquipped = isToolAlreadyEquipped(tool.Name)
-                count = count + 1
-
-                task.wait(1)
-            until isToolEquipped or count >= MAX_COUNT
-
-            if count >= MAX_COUNT then
-                return false
-            end
-
-            return true
-        end
-        local getToolFromBackpack = function(toolName)
-            local tool = playerBackpack:FindFirstChild(toolName)
-
-            if not (tool and tool:IsA('Tool')) then
-                return nil
-            end
-
-            return tool
-        end
-
-        function ToolHandle.EquipTool(toolName)
-            if not toolName then
-                return false
-            end
-            if isToolAlreadyEquipped(toolName) then
-                return true
-            end
-
-            local tool = getToolFromBackpack(toolName)
-
-            if not tool then
-                return false
-            end
-
-            Utils.GetHumanoid():EquipTool(tool)
-            task.wait()
-
-            return waitForTool(tool)
-        end
-
-        return ToolHandle
-    end
     function __DARKLUA_BUNDLE_MODULES.d()
         local ReplicatedStorage = game:GetService('ReplicatedStorage')
         local Players = game:GetService('Players')
         local DataService = (require(ReplicatedStorage:WaitForChild('Modules'):WaitForChild('DataService')))
         local PetRegistry = (require(ReplicatedStorage:WaitForChild('Data'):WaitForChild('PetRegistry')))
         local Utils = __DARKLUA_BUNDLE_MODULES.load('a')
+        local FarmPlotPath = __DARKLUA_BUNDLE_MODULES.load('c')
         local Pets = {}
         local localPlayer = Players.LocalPlayer
         local backPack = localPlayer:WaitForChild('Backpack')
         local playerData = DataService:GetData()
         local gameEventsFolder = (ReplicatedStorage:WaitForChild('GameEvents'))
+        local myFarmPlot = FarmPlotPath.GetFarmPlotFor(localPlayer)
+        local important = myFarmPlot:WaitForChild('Important')
+        local objectsPhysical = important:WaitForChild('Objects_Physical')
+        local BASE_WEIGHT = 7
         local unlockableSlots = {
             ['1'] = 20,
             ['2'] = 30,
@@ -295,8 +420,8 @@ do
 
             return count >= maxPets and true or false
         end
-        function Pets.HatchPets(folder)
-            for _, model in folder:GetChildren()do
+        function Pets.HatchPets()
+            for _, model in objectsPhysical:GetChildren()do
                 if not model:IsA('Model') then
                     continue
                 end
@@ -308,14 +433,34 @@ do
 
                 if prompt and prompt:IsA('ProximityPrompt') and prompt.Enabled then
                     gameEventsFolder.PetEggService:FireServer('HatchPet', model)
-                    Utils.PrintDebug('hatched egg?')
+                    Utils.PrintDebug('hatched egg')
                 end
             end
         end
-        function Pets.IsMaxEggPlanted(folder)
+        function Pets.HatchEggByUUID(eggUUID)
+            for _, model in objectsPhysical:GetChildren()do
+                if not model:IsA('Model') then
+                    continue
+                end
+                if model:GetAttribute('OBJECT_TYPE') ~= 'PetEgg' then
+                    continue
+                end
+
+                local uuid = model:GetAttribute('OBJECT_UUID')
+
+                if not uuid then
+                    continue
+                end
+                if uuid == eggUUID then
+                    gameEventsFolder.PetEggService:FireServer('HatchPet', model)
+                    Utils.PrintDebug('hatched egg')
+                end
+            end
+        end
+        function Pets.IsMaxEggPlanted()
             local count = 0
 
-            for _, v in folder:GetChildren()do
+            for _, v in objectsPhysical:GetChildren()do
                 if not v:IsA('Model') then
                     continue
                 end
@@ -498,7 +643,7 @@ do
                 if table.find(keepList, value.PetType) then
                     continue
                 end
-                if value.PetData.BaseWeight > 10 then
+                if value.PetData.BaseWeight > BASE_WEIGHT then
                     continue
                 end
 
@@ -530,7 +675,7 @@ do
                 if table.find(keepList, value.PetType) then
                     continue
                 end
-                if value.PetData.BaseWeight > 10 then
+                if value.PetData.BaseWeight > BASE_WEIGHT then
                     continue
                 end
 
@@ -600,8 +745,8 @@ do
                 if not table.find(pets, value.PetType) then
                     continue
                 end
-                if value.PetData.Level == unlockableSlots[tostring(slotAmount)] then
-                    Utils.PrintDebug(string.format('pet level: %s,  unlock level: %s', tostring(value.PetData.Level), tostring(unlockableSlots[tostring(slotAmount)])))
+                if value.PetData.Level == unlockableSlots[tostring(slotAmount + 1)] then
+                    Utils.PrintDebug(string.format('pet level: %s,  unlock level: %s', tostring(value.PetData.Level), tostring(unlockableSlots[tostring(slotAmount + 1)])))
                     Pets.RemovePetFromFarm(uuid)
                     Pets.TurnInPetForExtraSlot(uuid, slotName)
                     task.wait(3)
@@ -631,6 +776,225 @@ do
         return Pets
     end
     function __DARKLUA_BUNDLE_MODULES.e()
+        local Players = game:GetService('Players')
+        local Pets = __DARKLUA_BUNDLE_MODULES.load('d')
+        local Utils = __DARKLUA_BUNDLE_MODULES.load('a')
+        local PetTradingHandler = {}
+        local localPlayer = Players.LocalPlayer
+        local playerGui = localPlayer:WaitForChild('PlayerGui')
+        local giftNotification = (playerGui:WaitForChild('Gift_Notification'))
+        local MAX_PET_LEVEL = getgenv().CONFIGS.PET_MAX_LEVEL or 100
+        local MULES = getgenv().CONFIGS.MULES
+        local giftPet = function(character)
+            if not character then
+                return false
+            end
+
+            local player = Players:GetPlayerFromCharacter(character)
+
+            if not player then
+                return false
+            end
+
+            local humanoidRootPart = (character:FindFirstChild('HumanoidRootPart'))
+
+            if not humanoidRootPart then
+                return false
+            end
+
+            local petUUID = Pets.GetMaxLevelPetUUID(MAX_PET_LEVEL)
+
+            if not petUUID then
+                return false
+            end
+
+            local petTool = Pets.GetPetToolByUUID(petUUID)
+
+            if not petTool then
+                return false
+            end
+
+            Utils.GetHumanoid():EquipTool(petTool)
+            Utils.WaitForToolToEquip(5)
+
+            if Utils.TeleportPlayerTo(humanoidRootPart) then
+                Pets.GiftPet(player)
+                Utils.PrintDebug(string.format('Traded: %s Pet: %s', tostring(player.Name), tostring(petTool.Name)))
+
+                return true
+            end
+
+            return false
+        end
+        local startTrading = function(character)
+            task.wait(1)
+            Utils.PrintDebug(string.format('Trading %s', tostring(character)))
+            task.spawn(function()
+                while true do
+                    local hasPet = giftPet(character)
+
+                    if not hasPet then
+                        break
+                    end
+
+                    task.wait(10)
+                end
+
+                Utils.PrintDebug('Doesnt have anymore pets to trade')
+            end)
+        end
+
+        function PetTradingHandler.Init()
+            giftNotification:WaitForChild('Frame').ChildAdded:Connect(function(
+                child
+            )
+                if child.Name ~= 'Gift_Notification' then
+                    return
+                end
+
+                local notification = child
+
+                if not notification:WaitForChild('Holder', 10) then
+                    return
+                end
+                if not notification.Holder:WaitForChild('Frame', 10) then
+                    return
+                end
+
+                local acceptButton = (notification.Holder.Frame:WaitForChild('Accept', 10))
+
+                if not acceptButton then
+                    return
+                end
+
+                firesignal((acceptButton.MouseButton1Click))
+                Utils.PrintDebug('clicked on button')
+            end)
+
+            if localPlayer.Name == localPlayer.Name then
+                return
+            end
+
+            Players.PlayerAdded:Connect(function(player)
+                if not table.find(MULES, player.Name) then
+                    return
+                end
+
+                Utils.PrintDebug('Mule joined game. sending trade')
+                player.CharacterAdded:Connect(function(character)
+                    startTrading(character)
+                end)
+            end)
+        end
+        function PetTradingHandler.Start()
+            repeat
+                local notification = (giftNotification:WaitForChild('Frame'):FindFirstChild('Gift_Notification'))
+
+                if not notification then
+                    return
+                end
+                if not notification:FindFirstChild('Holder') then
+                    return
+                end
+                if not notification.Holder:FindFirstChild('Frame') then
+                    return
+                end
+
+                local acceptButton = (notification.Holder.Frame:FindFirstChild('Accept'))
+
+                if not acceptButton then
+                    return
+                end
+
+                firesignal((acceptButton.MouseButton1Click))
+                Utils.PrintDebug('clicked on button')
+                task.wait(1)
+            until not notification
+
+            if localPlayer.Name == localPlayer.Name then
+                return
+            end
+
+            for _, player in Players:GetPlayers()do
+                if not table.find(MULES, player.Name) then
+                    continue
+                end
+                if not player.Character then
+                    continue
+                end
+
+                startTrading(player.Character)
+            end
+        end
+
+        return PetTradingHandler
+    end
+    function __DARKLUA_BUNDLE_MODULES.f()
+        local Players = game:GetService('Players')
+        local Utils = __DARKLUA_BUNDLE_MODULES.load('a')
+        local ToolHandle = {}
+        local localPlayer = Players.LocalPlayer
+        local playerBackpack = localPlayer:WaitForChild('Backpack')
+        local isToolAlreadyEquipped = function(toolName)
+            local hasTool = Utils.GetCharacter():FindFirstChild(toolName)
+
+            if not (hasTool and hasTool:IsA('Tool')) then
+                return false
+            end
+
+            return true
+        end
+        local waitForTool = function(tool)
+            local isToolEquipped
+            local count = 0
+            local MAX_COUNT = 20
+
+            repeat
+                isToolEquipped = isToolAlreadyEquipped(tool.Name)
+                count = count + 1
+
+                task.wait(1)
+            until isToolEquipped or count >= MAX_COUNT
+
+            if count >= MAX_COUNT then
+                return false
+            end
+
+            return true
+        end
+        local getToolFromBackpack = function(toolName)
+            local tool = playerBackpack:FindFirstChild(toolName)
+
+            if not (tool and tool:IsA('Tool')) then
+                return nil
+            end
+
+            return tool
+        end
+
+        function ToolHandle.EquipTool(toolName)
+            if not toolName then
+                return false
+            end
+            if isToolAlreadyEquipped(toolName) then
+                return true
+            end
+
+            local tool = getToolFromBackpack(toolName)
+
+            if not tool then
+                return false
+            end
+
+            Utils.GetHumanoid():EquipTool(tool)
+            task.wait()
+
+            return waitForTool(tool)
+        end
+
+        return ToolHandle
+    end
+    function __DARKLUA_BUNDLE_MODULES.g()
         return {
             ['Strawberry'] = {
                 MaxLimit = 50,
@@ -658,12 +1022,12 @@ do
             },
         }
     end
-    function __DARKLUA_BUNDLE_MODULES.f()
+    function __DARKLUA_BUNDLE_MODULES.h()
         local ReplicatedStorage = game:GetService('ReplicatedStorage')
         local Players = game:GetService('Players')
         local DataService = (require(ReplicatedStorage:WaitForChild('Modules'):WaitForChild('DataService')))
         local MutationHandler = (require(ReplicatedStorage:WaitForChild('Modules'):WaitForChild('MutationHandler')))
-        local SeedLimits = __DARKLUA_BUNDLE_MODULES.load('e')
+        local SeedLimits = __DARKLUA_BUNDLE_MODULES.load('g')
         local Utils = __DARKLUA_BUNDLE_MODULES.load('a')
         local Inventory = {}
         local localPlayer = Players.LocalPlayer
@@ -821,15 +1185,15 @@ do
 
         return Inventory
     end
-    function __DARKLUA_BUNDLE_MODULES.g()
+    function __DARKLUA_BUNDLE_MODULES.i()
         local ReplicatedStorage = game:GetService('ReplicatedStorage')
         local Players = game:GetService('Players')
         local ByteNetRemotes = (require(ReplicatedStorage:WaitForChild('Modules'):WaitForChild('Remotes')))
         local InventoryService = (require(ReplicatedStorage:WaitForChild('Modules'):WaitForChild('InventoryService')))
-        local ToolHandle = __DARKLUA_BUNDLE_MODULES.load('c')
-        local FarmPlotPath = __DARKLUA_BUNDLE_MODULES.load('b')
+        local ToolHandle = __DARKLUA_BUNDLE_MODULES.load('f')
+        local FarmPlotPath = __DARKLUA_BUNDLE_MODULES.load('c')
         local Pets = __DARKLUA_BUNDLE_MODULES.load('d')
-        local Inventory = __DARKLUA_BUNDLE_MODULES.load('f')
+        local Inventory = __DARKLUA_BUNDLE_MODULES.load('h')
         local Utils = __DARKLUA_BUNDLE_MODULES.load('a')
         local FarmPlot = {}
         local fireCollect = ByteNetRemotes.Crops.Collect.send
@@ -978,9 +1342,9 @@ do
                 task.wait(1)
             until not tool.Parent or tool:GetAttribute('Quantity') <= 0 or #plantsPhysical:GetChildren() >= MAX_PLANTED
         end
-        function FarmPlot.GetEggToolandPlant(eggsNotToPlant, dirtPart, folder)
+        function FarmPlot.GetEggToolandPlant(eggsNotToPlant, dirtPart)
             for _, eggTool in playerBackpack:GetChildren()do
-                if Pets.IsMaxEggPlanted(folder) then
+                if Pets.IsMaxEggPlanted() then
                     return
                 end
                 if not eggTool:IsA('Tool') then
@@ -998,7 +1362,7 @@ do
                         ToolHandle.EquipTool(eggTool.Name)
                         FarmPlot.PlantEgg(dirtPart.Position, eggName)
                         task.wait(1)
-                    until not eggTool.Parent or Pets.IsMaxEggPlanted(folder) or eggTool:GetAttribute('LocalUses') <= 0
+                    until not eggTool.Parent or Pets.IsMaxEggPlanted() or eggTool:GetAttribute('LocalUses') <= 0
                 end
             end
         end
@@ -1024,7 +1388,7 @@ do
 
         return FarmPlot
     end
-    function __DARKLUA_BUNDLE_MODULES.h()
+    function __DARKLUA_BUNDLE_MODULES.j()
         local GearList = {
             ['Advanced Sprinkler'] = {
                 CanBuy = true,
@@ -1050,7 +1414,7 @@ do
 
         return GearList
     end
-    function __DARKLUA_BUNDLE_MODULES.i()
+    function __DARKLUA_BUNDLE_MODULES.k()
         local ReplicatedStorage = game:GetService('ReplicatedStorage')
         local Workspace = game:GetService('Workspace')
         local Players = game:GetService('Players')
@@ -1060,8 +1424,8 @@ do
         local PetEggData = (require(ReplicatedStorage:WaitForChild('Data'):WaitForChild('PetEggData')))
         local ByteNetRemotes = (require(ReplicatedStorage:WaitForChild('Modules'):WaitForChild('Remotes')))
         local Utils = __DARKLUA_BUNDLE_MODULES.load('a')
-        local Inventory = __DARKLUA_BUNDLE_MODULES.load('f')
-        local GearList = __DARKLUA_BUNDLE_MODULES.load('h')
+        local Inventory = __DARKLUA_BUNDLE_MODULES.load('h')
+        local GearList = __DARKLUA_BUNDLE_MODULES.load('j')
         local Shops = {}
         local localPlayer = Players.LocalPlayer
         local playerData = DataService:GetData()
@@ -1247,11 +1611,11 @@ do
 
         return Shops
     end
-    function __DARKLUA_BUNDLE_MODULES.j()
+    function __DARKLUA_BUNDLE_MODULES.l()
         local ReplicatedStorage = game:GetService('ReplicatedStorage')
         local Players = game:GetService('Players')
         local SeedData = (require(ReplicatedStorage:WaitForChild('Data'):WaitForChild('SeedData')))
-        local FarmPlotPath = __DARKLUA_BUNDLE_MODULES.load('b')
+        local FarmPlotPath = __DARKLUA_BUNDLE_MODULES.load('c')
         local PlayerStage = {}
 
         PlayerStage.IsNewPlayer = false
@@ -1334,13 +1698,13 @@ do
 
         return PlayerStage
     end
-    function __DARKLUA_BUNDLE_MODULES.k()
+    function __DARKLUA_BUNDLE_MODULES.m()
         local ReplicatedStorage = game:GetService('ReplicatedStorage')
         local Players = game:GetService('Players')
-        local GearList = __DARKLUA_BUNDLE_MODULES.load('h')
-        local Inventory = __DARKLUA_BUNDLE_MODULES.load('f')
+        local GearList = __DARKLUA_BUNDLE_MODULES.load('j')
+        local Inventory = __DARKLUA_BUNDLE_MODULES.load('h')
         local Utils = __DARKLUA_BUNDLE_MODULES.load('a')
-        local FarmPlotPath = __DARKLUA_BUNDLE_MODULES.load('b')
+        local FarmPlotPath = __DARKLUA_BUNDLE_MODULES.load('c')
         local GearPlantable = {}
         local localPlayer = Players.LocalPlayer
         local gameEventsFolder = (ReplicatedStorage:WaitForChild('GameEvents'))
@@ -1437,7 +1801,7 @@ do
 
         return GearPlantable
     end
-    function __DARKLUA_BUNDLE_MODULES.l()
+    function __DARKLUA_BUNDLE_MODULES.n()
         local Players = game:GetService('Players')
         local GuiClass = {}
 
@@ -1662,7 +2026,7 @@ do
 
         return GuiClass
     end
-    function __DARKLUA_BUNDLE_MODULES.m()
+    function __DARKLUA_BUNDLE_MODULES.o()
         local ReplicatedStorage = game:GetService('ReplicatedStorage')
         local DataService = (require(ReplicatedStorage:WaitForChild('Modules'):WaitForChild('DataService')))
         local DinoEvent = {}
@@ -1684,22 +2048,22 @@ do
 
         return DinoEvent
     end
-    function __DARKLUA_BUNDLE_MODULES.n()
+    function __DARKLUA_BUNDLE_MODULES.p()
         local ReplicatedStorage = game:GetService('ReplicatedStorage')
         local Players = game:GetService('Players')
         local VirtualInputManager = game:GetService('VirtualInputManager')
         local Workspace = game:GetService('Workspace')
         local DataService = (require(ReplicatedStorage:WaitForChild('Modules'):WaitForChild('DataService')))
-        local FarmPlotPath = __DARKLUA_BUNDLE_MODULES.load('b')
-        local FarmPlot = __DARKLUA_BUNDLE_MODULES.load('g')
+        local FarmPlotPath = __DARKLUA_BUNDLE_MODULES.load('c')
+        local FarmPlot = __DARKLUA_BUNDLE_MODULES.load('i')
         local Utils = __DARKLUA_BUNDLE_MODULES.load('a')
-        local Shops = __DARKLUA_BUNDLE_MODULES.load('i')
-        local Inventory = __DARKLUA_BUNDLE_MODULES.load('f')
+        local Shops = __DARKLUA_BUNDLE_MODULES.load('k')
+        local Inventory = __DARKLUA_BUNDLE_MODULES.load('h')
         local Pets = __DARKLUA_BUNDLE_MODULES.load('d')
-        local PlayerStage = __DARKLUA_BUNDLE_MODULES.load('j')
-        local GearPlantable = __DARKLUA_BUNDLE_MODULES.load('k')
-        local GuiClass = __DARKLUA_BUNDLE_MODULES.load('l')
-        local DinoEvent = __DARKLUA_BUNDLE_MODULES.load('m')
+        local PlayerStage = __DARKLUA_BUNDLE_MODULES.load('l')
+        local GearPlantable = __DARKLUA_BUNDLE_MODULES.load('m')
+        local GuiClass = __DARKLUA_BUNDLE_MODULES.load('n')
+        local DinoEvent = __DARKLUA_BUNDLE_MODULES.load('o')
         local StartFarmingHandler = {}
         local playerData = DataService:GetData()
         local localPlayer = Players.LocalPlayer
@@ -1780,15 +2144,15 @@ do
             if not PlayerStage.IsNewPlayer then
                 GearPlantable.EquipAndPlantGearTools(centerPoint, dirtPart)
             end
-            if FarmPlot.HasEggToPlant(EGGS_NOT_TO_BUY) and not Pets.IsMaxEggPlanted(objectsPhysical) then
+            if FarmPlot.HasEggToPlant(EGGS_NOT_TO_BUY) and not Pets.IsMaxEggPlanted() then
                 Utils.TeleportPlayerTo(centerPoint)
-                FarmPlot.GetEggToolandPlant(EGGS_NOT_TO_BUY, dirtPart, objectsPhysical)
+                FarmPlot.GetEggToolandPlant(EGGS_NOT_TO_BUY, dirtPart)
             end
 
             local maxPets = Pets.IsMaxPetsInInventory()
 
             if not maxPets then
-                Pets.HatchPets(objectsPhysical)
+                Pets.HatchPets()
             end
 
             FarmPlot.HarvestPlants(seedsToFarm, PlayerStage.IsNewPlayer, false)
@@ -1890,7 +2254,7 @@ do
         end
 
         function StartFarmingHandler.Init()
-            getgenv().Connections.confirmSprinker = confirmSprinker:GetPropertyChangedSignal('Enabled'):Connect(function(
+            confirmSprinker:GetPropertyChangedSignal('Enabled'):Connect(function(
             )
                 if not confirmSprinker.Enabled then
                     return
@@ -1909,7 +2273,6 @@ do
                 firesignal((confirmButton.MouseButton1Click))
                 Utils.PrintDebug('Fired button')
             end)
-
             localPlayer:GetAttributeChangedSignal('SessionTime'):Connect(setTimeLabelText)
         end
         function StartFarmingHandler.Start()
@@ -1928,8 +2291,6 @@ do
                 task.wait(0.1)
                 VirtualInputManager:SendMouseButtonEvent(viewportSize.X / 2, viewportSize.Y / 2, 0, false, game, 1)
             end
-
-            Pets.RemoveAllPetsFromFarm()
 
             startingSheckles = playerData.Sheckles
 
@@ -1970,159 +2331,6 @@ do
 
         return StartFarmingHandler
     end
-    function __DARKLUA_BUNDLE_MODULES.o()
-        local Players = game:GetService('Players')
-        local Pets = __DARKLUA_BUNDLE_MODULES.load('d')
-        local Utils = __DARKLUA_BUNDLE_MODULES.load('a')
-        local PetTradingHandler = {}
-        local localPlayer = Players.LocalPlayer
-        local playerGui = localPlayer:WaitForChild('PlayerGui')
-        local giftNotification = (playerGui:WaitForChild('Gift_Notification'))
-        local MAX_PET_LEVEL = getgenv().CONFIGS.PET_MAX_LEVEL or 100
-        local giftPet = function(character)
-            if not character then
-                return false
-            end
-
-            local player = Players:GetPlayerFromCharacter(character)
-
-            if not player then
-                return false
-            end
-
-            local humanoidRootPart = (character:FindFirstChild('HumanoidRootPart'))
-
-            if not humanoidRootPart then
-                return false
-            end
-
-            local petUUID = Pets.GetMaxLevelPetUUID(MAX_PET_LEVEL)
-
-            if not petUUID then
-                return false
-            end
-
-            local petTool = Pets.GetPetToolByUUID(petUUID)
-
-            if not petTool then
-                return false
-            end
-
-            Utils.GetHumanoid():EquipTool(petTool)
-            Utils.WaitForToolToEquip(5)
-
-            if Utils.TeleportPlayerTo(humanoidRootPart) then
-                Pets.GiftPet(player)
-                Utils.PrintDebug(string.format('Traded: %s Pet: %s', tostring(player.Name), tostring(petTool.Name)))
-
-                return true
-            end
-
-            return false
-        end
-        local startTrading = function(character)
-            task.wait(1)
-            Utils.PrintDebug(string.format('Trading %s', tostring(character)))
-            task.spawn(function()
-                while true do
-                    local hasPet = giftPet(character)
-
-                    if not hasPet then
-                        break
-                    end
-
-                    task.wait(10)
-                end
-
-                Utils.PrintDebug('Doesnt have anymore pets to trade')
-            end)
-        end
-
-        function PetTradingHandler.Init()
-            giftNotification:WaitForChild('Frame').ChildAdded:Connect(function(
-                child
-            )
-                if child.Name ~= 'Gift_Notification' then
-                    return
-                end
-
-                local notification = child
-
-                if not notification:WaitForChild('Holder', 10) then
-                    return
-                end
-                if not notification.Holder:WaitForChild('Frame', 10) then
-                    return
-                end
-
-                local acceptButton = (notification.Holder.Frame:WaitForChild('Accept', 10))
-
-                if not acceptButton then
-                    return
-                end
-
-                firesignal((acceptButton.MouseButton1Click))
-                Utils.PrintDebug('clicked on button')
-            end)
-
-            if localPlayer.Name == 'SoaveCorsa099' then
-                return
-            end
-
-            Players.PlayerAdded:Connect(function(player)
-                if player.Name ~= 'SoaveCorsa099' then
-                    return
-                end
-
-                Utils.PrintDebug('Mule joined game. sending trade')
-                player.CharacterAdded:Connect(function(character)
-                    startTrading(character)
-                end)
-            end)
-        end
-        function PetTradingHandler.Start()
-            repeat
-                local notification = (giftNotification:WaitForChild('Frame'):FindFirstChild('Gift_Notification'))
-
-                if not notification then
-                    return
-                end
-                if not notification:FindFirstChild('Holder') then
-                    return
-                end
-                if not notification.Holder:FindFirstChild('Frame') then
-                    return
-                end
-
-                local acceptButton = (notification.Holder.Frame:FindFirstChild('Accept'))
-
-                if not acceptButton then
-                    return
-                end
-
-                firesignal((acceptButton.MouseButton1Click))
-                Utils.PrintDebug('clicked on button')
-                task.wait(1)
-            until not notification
-
-            if localPlayer.Name == 'SoaveCorsa099' then
-                return
-            end
-
-            for _, player in Players:GetPlayers()do
-                if player.Name ~= 'SoaveCorsa099' then
-                    continue
-                end
-                if not player.Character then
-                    continue
-                end
-
-                startTrading(player.Character)
-            end
-        end
-
-        return PetTradingHandler
-    end
 end
 
 if not game:IsLoaded() then
@@ -2132,42 +2340,16 @@ if game.PlaceId ~= 126884695634066 then
     return
 end
 
-getgenv().Connections = {}
-getgenv().DEBUG_MODE = true
-getgenv().CONFIGS = {
-    ['USE_SELECTED_PETS_ONLY'] = true,
-    ['PET_MAX_LEVEL'] = 75,
-    ['SELECTED_FARMING_PETS'] = {
-        'Starfish',
-        'Blood Kiwi',
-        'Chicken',
-    },
-    ['EGGS_NOT_TO_BUY'] = {
-        'Common Egg',
-    },
-    ['PETS_TO_KEEP'] = {
-        'Starfish',
-        'Chicken',
-        'Blood Kiwi',
-        'Butterfly',
-        'Mimic Octoplus',
-        'Hyacinth Macaw',
-        'Red Fox',
-        'T-Rex',
-        'Dragonfly',
-        'Spinosaurus',
-        'Disco Bee',
-        'Queen Bee',
-    },
-}
-
 local Utils = __DARKLUA_BUNDLE_MODULES.load('a')
 local files = {
     {
-        StartFarmingHandler = __DARKLUA_BUNDLE_MODULES.load('n'),
+        WebhookHandler = __DARKLUA_BUNDLE_MODULES.load('b'),
     },
     {
-        PetTradingHandler = __DARKLUA_BUNDLE_MODULES.load('o'),
+        PetTradingHandler = __DARKLUA_BUNDLE_MODULES.load('e'),
+    },
+    {
+        StartFarmingHandler = __DARKLUA_BUNDLE_MODULES.load('p'),
     },
 }
 
