@@ -367,6 +367,8 @@ do
         local important = myFarmPlot:WaitForChild('Important')
         local objectsPhysical = important:WaitForChild('Objects_Physical')
         local BASE_WEIGHT = 7
+        local SELECTED_FARMING_PETS = getgenv().CONFIGS.SELECTED_FARMING_PETS
+        local PETS_TO_KEEP = getgenv().CONFIGS.PETS_TO_KEEP
         local unlockableSlots = {
             ['1'] = 20,
             ['2'] = 30,
@@ -564,6 +566,21 @@ do
                     continue
                 end
                 if v.PetData.Level >= MaxLevel then
+                    return uuid
+                end
+            end
+
+            return nil
+        end
+        function Pets.GetPetFromKeepList()
+            for uuid, v in playerData.PetsData.PetInventory.Data do
+                if not v.PetType then
+                    continue
+                end
+                if table.find(SELECTED_FARMING_PETS, v.PetType) then
+                    continue
+                end
+                if table.find(PETS_TO_KEEP, v.PetType) then
                     return uuid
                 end
             end
@@ -802,7 +819,7 @@ do
                 return false
             end
 
-            local petUUID = Pets.GetMaxLevelPetUUID(MAX_PET_LEVEL)
+            local petUUID = Pets.GetPetFromKeepList() or Pets.GetMaxLevelPetUUID(MAX_PET_LEVEL)
 
             if not petUUID then
                 return false
@@ -820,6 +837,7 @@ do
             if Utils.TeleportPlayerTo(humanoidRootPart) then
                 Pets.GiftPet(player)
                 Utils.PrintDebug(string.format('Traded: %s Pet: %s', tostring(player.Name), tostring(petTool.Name)))
+                petTool.Unequipped:Wait()
 
                 return true
             end
