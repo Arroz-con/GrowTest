@@ -352,6 +352,71 @@ do
         return FarmPlotPath
     end
     function __DARKLUA_BUNDLE_MODULES.d()
+        local Players = game:GetService('Players')
+        local Utils = __DARKLUA_BUNDLE_MODULES.load('a')
+        local ToolHandle = {}
+        local localPlayer = Players.LocalPlayer
+        local playerBackpack = localPlayer:WaitForChild('Backpack')
+        local isToolAlreadyEquipped = function(toolName)
+            local hasTool = Utils.GetCharacter():FindFirstChild(toolName)
+
+            if not (hasTool and hasTool:IsA('Tool')) then
+                return false
+            end
+
+            return true
+        end
+        local waitForTool = function(tool)
+            local isToolEquipped
+            local count = 0
+            local MAX_COUNT = 20
+
+            repeat
+                isToolEquipped = isToolAlreadyEquipped(tool.Name)
+                count = count + 1
+
+                task.wait(1)
+            until isToolEquipped or count >= MAX_COUNT
+
+            if count >= MAX_COUNT then
+                return false
+            end
+
+            return true
+        end
+        local getToolFromBackpack = function(toolName)
+            local tool = playerBackpack:FindFirstChild(toolName)
+
+            if not (tool and tool:IsA('Tool')) then
+                return nil
+            end
+
+            return tool
+        end
+
+        function ToolHandle.EquipTool(toolName)
+            if not toolName then
+                return false
+            end
+            if isToolAlreadyEquipped(toolName) then
+                return true
+            end
+
+            local tool = getToolFromBackpack(toolName)
+
+            if not tool then
+                return false
+            end
+
+            Utils.GetHumanoid():EquipTool(tool)
+            task.wait()
+
+            return waitForTool(tool)
+        end
+
+        return ToolHandle
+    end
+    function __DARKLUA_BUNDLE_MODULES.e()
         local ReplicatedStorage = game:GetService('ReplicatedStorage')
         local Players = game:GetService('Players')
         local DataService = (require(ReplicatedStorage:WaitForChild('Modules'):WaitForChild('DataService')))
@@ -581,9 +646,13 @@ do
                     continue
                 end
                 if table.find(PETS_TO_KEEP, v.PetType) then
+                    Utils.PrintDebug(string.format('GetPetFromKeepList: %s %s', tostring(v.PetType), tostring(uuid)))
+
                     return uuid
                 end
             end
+
+            Utils.PrintDebug('GetPetFromKeepList: nothing found')
 
             return nil
         end
@@ -723,8 +792,12 @@ do
                     continue
                 end
 
+                Utils.PrintDebug(string.format('GetPetToolByUUID: got petTool %s', tostring(petTool)))
+
                 return petTool
             end
+
+            Utils.PrintDebug('GetPetToolByUUID: didnt found petTool')
 
             return nil
         end
@@ -792,227 +865,7 @@ do
 
         return Pets
     end
-    function __DARKLUA_BUNDLE_MODULES.e()
-        local Players = game:GetService('Players')
-        local Pets = __DARKLUA_BUNDLE_MODULES.load('d')
-        local Utils = __DARKLUA_BUNDLE_MODULES.load('a')
-        local PetTradingHandler = {}
-        local localPlayer = Players.LocalPlayer
-        local playerGui = localPlayer:WaitForChild('PlayerGui')
-        local giftNotification = (playerGui:WaitForChild('Gift_Notification'))
-        local MAX_PET_LEVEL = getgenv().CONFIGS.PET_MAX_LEVEL or 100
-        local MULES = getgenv().CONFIGS.MULES
-        local giftPet = function(character)
-            if not character then
-                return false
-            end
-
-            local player = Players:GetPlayerFromCharacter(character)
-
-            if not player then
-                return false
-            end
-
-            local humanoidRootPart = (character:FindFirstChild('HumanoidRootPart'))
-
-            if not humanoidRootPart then
-                return false
-            end
-
-            local petUUID = Pets.GetPetFromKeepList() or Pets.GetMaxLevelPetUUID(MAX_PET_LEVEL)
-
-            if not petUUID then
-                return false
-            end
-
-            local petTool = Pets.GetPetToolByUUID(petUUID)
-
-            if not petTool then
-                return false
-            end
-
-            Utils.GetHumanoid():EquipTool(petTool)
-            Utils.WaitForToolToEquip(5)
-
-            if Utils.TeleportPlayerTo(humanoidRootPart) then
-                Pets.GiftPet(player)
-                Utils.PrintDebug(string.format('Traded: %s Pet: %s', tostring(player.Name), tostring(petTool.Name)))
-                petTool.Unequipped:Wait()
-
-                return true
-            end
-
-            return false
-        end
-        local startTrading = function(character)
-            task.wait(1)
-            Utils.PrintDebug(string.format('Trading %s', tostring(character)))
-            task.spawn(function()
-                while true do
-                    local hasPet = giftPet(character)
-
-                    if not hasPet then
-                        break
-                    end
-
-                    task.wait(10)
-                end
-
-                Utils.PrintDebug('Doesnt have anymore pets to trade')
-            end)
-        end
-
-        function PetTradingHandler.Init()
-            giftNotification:WaitForChild('Frame').ChildAdded:Connect(function(
-                child
-            )
-                if child.Name ~= 'Gift_Notification' then
-                    return
-                end
-
-                local notification = child
-
-                if not notification:WaitForChild('Holder', 10) then
-                    return
-                end
-                if not notification.Holder:WaitForChild('Frame', 10) then
-                    return
-                end
-
-                local acceptButton = (notification.Holder.Frame:WaitForChild('Accept', 10))
-
-                if not acceptButton then
-                    return
-                end
-
-                firesignal((acceptButton.MouseButton1Click))
-                Utils.PrintDebug('clicked on button')
-            end)
-
-            if localPlayer.Name == localPlayer.Name then
-                return
-            end
-
-            Players.PlayerAdded:Connect(function(player)
-                if not table.find(MULES, player.Name) then
-                    return
-                end
-
-                Utils.PrintDebug('Mule joined game. sending trade')
-                player.CharacterAdded:Connect(function(character)
-                    startTrading(character)
-                end)
-            end)
-        end
-        function PetTradingHandler.Start()
-            repeat
-                local notification = (giftNotification:WaitForChild('Frame'):FindFirstChild('Gift_Notification'))
-
-                if not notification then
-                    return
-                end
-                if not notification:FindFirstChild('Holder') then
-                    return
-                end
-                if not notification.Holder:FindFirstChild('Frame') then
-                    return
-                end
-
-                local acceptButton = (notification.Holder.Frame:FindFirstChild('Accept'))
-
-                if not acceptButton then
-                    return
-                end
-
-                firesignal((acceptButton.MouseButton1Click))
-                Utils.PrintDebug('clicked on button')
-                task.wait(1)
-            until not notification
-
-            if localPlayer.Name == localPlayer.Name then
-                return
-            end
-
-            for _, player in Players:GetPlayers()do
-                if not table.find(MULES, player.Name) then
-                    continue
-                end
-                if not player.Character then
-                    continue
-                end
-
-                startTrading(player.Character)
-            end
-        end
-
-        return PetTradingHandler
-    end
     function __DARKLUA_BUNDLE_MODULES.f()
-        local Players = game:GetService('Players')
-        local Utils = __DARKLUA_BUNDLE_MODULES.load('a')
-        local ToolHandle = {}
-        local localPlayer = Players.LocalPlayer
-        local playerBackpack = localPlayer:WaitForChild('Backpack')
-        local isToolAlreadyEquipped = function(toolName)
-            local hasTool = Utils.GetCharacter():FindFirstChild(toolName)
-
-            if not (hasTool and hasTool:IsA('Tool')) then
-                return false
-            end
-
-            return true
-        end
-        local waitForTool = function(tool)
-            local isToolEquipped
-            local count = 0
-            local MAX_COUNT = 20
-
-            repeat
-                isToolEquipped = isToolAlreadyEquipped(tool.Name)
-                count = count + 1
-
-                task.wait(1)
-            until isToolEquipped or count >= MAX_COUNT
-
-            if count >= MAX_COUNT then
-                return false
-            end
-
-            return true
-        end
-        local getToolFromBackpack = function(toolName)
-            local tool = playerBackpack:FindFirstChild(toolName)
-
-            if not (tool and tool:IsA('Tool')) then
-                return nil
-            end
-
-            return tool
-        end
-
-        function ToolHandle.EquipTool(toolName)
-            if not toolName then
-                return false
-            end
-            if isToolAlreadyEquipped(toolName) then
-                return true
-            end
-
-            local tool = getToolFromBackpack(toolName)
-
-            if not tool then
-                return false
-            end
-
-            Utils.GetHumanoid():EquipTool(tool)
-            task.wait()
-
-            return waitForTool(tool)
-        end
-
-        return ToolHandle
-    end
-    function __DARKLUA_BUNDLE_MODULES.g()
         return {
             ['Strawberry'] = {
                 MaxLimit = 50,
@@ -1040,12 +893,12 @@ do
             },
         }
     end
-    function __DARKLUA_BUNDLE_MODULES.h()
+    function __DARKLUA_BUNDLE_MODULES.g()
         local ReplicatedStorage = game:GetService('ReplicatedStorage')
         local Players = game:GetService('Players')
         local DataService = (require(ReplicatedStorage:WaitForChild('Modules'):WaitForChild('DataService')))
         local MutationHandler = (require(ReplicatedStorage:WaitForChild('Modules'):WaitForChild('MutationHandler')))
-        local SeedLimits = __DARKLUA_BUNDLE_MODULES.load('g')
+        local SeedLimits = __DARKLUA_BUNDLE_MODULES.load('f')
         local Utils = __DARKLUA_BUNDLE_MODULES.load('a')
         local Inventory = {}
         local localPlayer = Players.LocalPlayer
@@ -1203,15 +1056,15 @@ do
 
         return Inventory
     end
-    function __DARKLUA_BUNDLE_MODULES.i()
+    function __DARKLUA_BUNDLE_MODULES.h()
         local ReplicatedStorage = game:GetService('ReplicatedStorage')
         local Players = game:GetService('Players')
         local ByteNetRemotes = (require(ReplicatedStorage:WaitForChild('Modules'):WaitForChild('Remotes')))
         local InventoryService = (require(ReplicatedStorage:WaitForChild('Modules'):WaitForChild('InventoryService')))
-        local ToolHandle = __DARKLUA_BUNDLE_MODULES.load('f')
+        local ToolHandle = __DARKLUA_BUNDLE_MODULES.load('d')
         local FarmPlotPath = __DARKLUA_BUNDLE_MODULES.load('c')
-        local Pets = __DARKLUA_BUNDLE_MODULES.load('d')
-        local Inventory = __DARKLUA_BUNDLE_MODULES.load('h')
+        local Pets = __DARKLUA_BUNDLE_MODULES.load('e')
+        local Inventory = __DARKLUA_BUNDLE_MODULES.load('g')
         local Utils = __DARKLUA_BUNDLE_MODULES.load('a')
         local FarmPlot = {}
         local fireCollect = ByteNetRemotes.Crops.Collect.send
@@ -1406,7 +1259,7 @@ do
 
         return FarmPlot
     end
-    function __DARKLUA_BUNDLE_MODULES.j()
+    function __DARKLUA_BUNDLE_MODULES.i()
         local GearList = {
             ['Advanced Sprinkler'] = {
                 CanBuy = true,
@@ -1432,7 +1285,7 @@ do
 
         return GearList
     end
-    function __DARKLUA_BUNDLE_MODULES.k()
+    function __DARKLUA_BUNDLE_MODULES.j()
         local ReplicatedStorage = game:GetService('ReplicatedStorage')
         local Workspace = game:GetService('Workspace')
         local Players = game:GetService('Players')
@@ -1442,8 +1295,8 @@ do
         local PetEggData = (require(ReplicatedStorage:WaitForChild('Data'):WaitForChild('PetEggData')))
         local ByteNetRemotes = (require(ReplicatedStorage:WaitForChild('Modules'):WaitForChild('Remotes')))
         local Utils = __DARKLUA_BUNDLE_MODULES.load('a')
-        local Inventory = __DARKLUA_BUNDLE_MODULES.load('h')
-        local GearList = __DARKLUA_BUNDLE_MODULES.load('j')
+        local Inventory = __DARKLUA_BUNDLE_MODULES.load('g')
+        local GearList = __DARKLUA_BUNDLE_MODULES.load('i')
         local Shops = {}
         local localPlayer = Players.LocalPlayer
         local playerData = DataService:GetData()
@@ -1629,7 +1482,7 @@ do
 
         return Shops
     end
-    function __DARKLUA_BUNDLE_MODULES.l()
+    function __DARKLUA_BUNDLE_MODULES.k()
         local ReplicatedStorage = game:GetService('ReplicatedStorage')
         local Players = game:GetService('Players')
         local SeedData = (require(ReplicatedStorage:WaitForChild('Data'):WaitForChild('SeedData')))
@@ -1716,11 +1569,11 @@ do
 
         return PlayerStage
     end
-    function __DARKLUA_BUNDLE_MODULES.m()
+    function __DARKLUA_BUNDLE_MODULES.l()
         local ReplicatedStorage = game:GetService('ReplicatedStorage')
         local Players = game:GetService('Players')
-        local GearList = __DARKLUA_BUNDLE_MODULES.load('j')
-        local Inventory = __DARKLUA_BUNDLE_MODULES.load('h')
+        local GearList = __DARKLUA_BUNDLE_MODULES.load('i')
+        local Inventory = __DARKLUA_BUNDLE_MODULES.load('g')
         local Utils = __DARKLUA_BUNDLE_MODULES.load('a')
         local FarmPlotPath = __DARKLUA_BUNDLE_MODULES.load('c')
         local GearPlantable = {}
@@ -1819,7 +1672,7 @@ do
 
         return GearPlantable
     end
-    function __DARKLUA_BUNDLE_MODULES.n()
+    function __DARKLUA_BUNDLE_MODULES.m()
         local Players = game:GetService('Players')
         local GuiClass = {}
 
@@ -2044,7 +1897,7 @@ do
 
         return GuiClass
     end
-    function __DARKLUA_BUNDLE_MODULES.o()
+    function __DARKLUA_BUNDLE_MODULES.n()
         local ReplicatedStorage = game:GetService('ReplicatedStorage')
         local DataService = (require(ReplicatedStorage:WaitForChild('Modules'):WaitForChild('DataService')))
         local DinoEvent = {}
@@ -2066,22 +1919,22 @@ do
 
         return DinoEvent
     end
-    function __DARKLUA_BUNDLE_MODULES.p()
+    function __DARKLUA_BUNDLE_MODULES.o()
         local ReplicatedStorage = game:GetService('ReplicatedStorage')
         local Players = game:GetService('Players')
         local VirtualInputManager = game:GetService('VirtualInputManager')
         local Workspace = game:GetService('Workspace')
         local DataService = (require(ReplicatedStorage:WaitForChild('Modules'):WaitForChild('DataService')))
         local FarmPlotPath = __DARKLUA_BUNDLE_MODULES.load('c')
-        local FarmPlot = __DARKLUA_BUNDLE_MODULES.load('i')
+        local FarmPlot = __DARKLUA_BUNDLE_MODULES.load('h')
         local Utils = __DARKLUA_BUNDLE_MODULES.load('a')
-        local Shops = __DARKLUA_BUNDLE_MODULES.load('k')
-        local Inventory = __DARKLUA_BUNDLE_MODULES.load('h')
-        local Pets = __DARKLUA_BUNDLE_MODULES.load('d')
-        local PlayerStage = __DARKLUA_BUNDLE_MODULES.load('l')
-        local GearPlantable = __DARKLUA_BUNDLE_MODULES.load('m')
-        local GuiClass = __DARKLUA_BUNDLE_MODULES.load('n')
-        local DinoEvent = __DARKLUA_BUNDLE_MODULES.load('o')
+        local Shops = __DARKLUA_BUNDLE_MODULES.load('j')
+        local Inventory = __DARKLUA_BUNDLE_MODULES.load('g')
+        local Pets = __DARKLUA_BUNDLE_MODULES.load('e')
+        local PlayerStage = __DARKLUA_BUNDLE_MODULES.load('k')
+        local GearPlantable = __DARKLUA_BUNDLE_MODULES.load('l')
+        local GuiClass = __DARKLUA_BUNDLE_MODULES.load('m')
+        local DinoEvent = __DARKLUA_BUNDLE_MODULES.load('n')
         local StartFarmingHandler = {}
         local playerData = DataService:GetData()
         local localPlayer = Players.LocalPlayer
@@ -2316,6 +2169,13 @@ do
 
             getgenv().AutoFarm = coroutine.create(function()
                 while true do
+                    if localPlayer:GetAttribute('StopAutoFarm') == true then
+                        Utils.PrintDebug('Player stopped farming.. waiting 60secs')
+                        task.wait(60)
+
+                        continue
+                    end
+
                     for index, uuid in Pets.GetAllPetsCurrentlyFarming()do
                         local petInfo = Pets.GetPetDataFor(uuid)
                         local slot = petSlots[index]
@@ -2349,6 +2209,164 @@ do
 
         return StartFarmingHandler
     end
+    function __DARKLUA_BUNDLE_MODULES.p()
+        local Players = game:GetService('Players')
+        local Pets = __DARKLUA_BUNDLE_MODULES.load('e')
+        local Utils = __DARKLUA_BUNDLE_MODULES.load('a')
+        local PetTradingHandler = {}
+        local localPlayer = Players.LocalPlayer
+        local playerGui = localPlayer:WaitForChild('PlayerGui')
+        local giftNotification = (playerGui:WaitForChild('Gift_Notification'))
+        local MAX_PET_LEVEL = getgenv().CONFIGS.PET_MAX_LEVEL or 100
+        local MULES = getgenv().CONFIGS.MULES
+        local giftPet = function(character)
+            if not character then
+                return false
+            end
+
+            local player = Players:GetPlayerFromCharacter(character)
+
+            if not player then
+                return false
+            end
+
+            local humanoidRootPart = (character:WaitForChild('HumanoidRootPart', 30))
+
+            if not humanoidRootPart then
+                Utils.PrintDebug('Mule doesnt have a HumanoidRootPart, must of left server')
+
+                return false
+            end
+
+            local petUUID = Pets.GetPetFromKeepList() or Pets.GetMaxLevelPetUUID(MAX_PET_LEVEL)
+
+            if not petUUID then
+                return false
+            end
+
+            local petTool = Pets.GetPetToolByUUID(petUUID)
+
+            if not petTool then
+                return false
+            end
+
+            Utils.GetHumanoid():EquipTool(petTool)
+            Utils.WaitForToolToEquip(5)
+
+            if Utils.TeleportPlayerTo(humanoidRootPart) then
+                Pets.GiftPet(player)
+                Utils.PrintDebug(string.format('Traded: %s Pet: %s', tostring(player.Name), tostring(petTool.Name)))
+                petTool.Unequipped:Wait()
+
+                return true
+            end
+
+            return false
+        end
+        local startTrading = function(character)
+            localPlayer:SetAttribute('StopAutoFarm', true)
+            Utils.PrintDebug(string.format('Trading %s', tostring(character)))
+            task.spawn(function()
+                while true do
+                    local hasPet = giftPet(character)
+
+                    if not hasPet then
+                        break
+                    end
+
+                    task.wait(10)
+                end
+
+                localPlayer:SetAttribute('StopAutoFarm', false)
+                Utils.PrintDebug('Doesnt have anymore pets to trade')
+            end)
+        end
+
+        function PetTradingHandler.Init()
+            giftNotification:WaitForChild('Frame').ChildAdded:Connect(function(
+                child
+            )
+                if child.Name ~= 'Gift_Notification' then
+                    return
+                end
+
+                local notification = child
+
+                if not notification:WaitForChild('Holder', 10) then
+                    return
+                end
+                if not notification.Holder:WaitForChild('Frame', 10) then
+                    return
+                end
+
+                local acceptButton = (notification.Holder.Frame:WaitForChild('Accept', 10))
+
+                if not acceptButton then
+                    return
+                end
+
+                firesignal((acceptButton.MouseButton1Click))
+                Utils.PrintDebug('clicked on button')
+            end)
+
+            if table.find(MULES, localPlayer.Name) then
+                return
+            end
+
+            Players.PlayerAdded:Connect(function(player)
+                if not table.find(MULES, player.Name) then
+                    return
+                end
+
+                Utils.PrintDebug('Mule joined game. sending trade')
+                player.CharacterAdded:Connect(function(character)
+                    startTrading(character)
+                end)
+            end)
+        end
+        function PetTradingHandler.Start()
+            repeat
+                local notification = (giftNotification:WaitForChild('Frame'):FindFirstChild('Gift_Notification'))
+
+                if not notification then
+                    return
+                end
+                if not notification:FindFirstChild('Holder') then
+                    return
+                end
+                if not notification.Holder:FindFirstChild('Frame') then
+                    return
+                end
+
+                local acceptButton = (notification.Holder.Frame:FindFirstChild('Accept'))
+
+                if not acceptButton then
+                    return
+                end
+
+                firesignal((acceptButton.MouseButton1Click))
+                Utils.PrintDebug('clicked on button')
+                task.wait(1)
+            until not notification
+
+            if table.find(MULES, localPlayer.Name) then
+                return
+            end
+
+            for _, player in Players:GetPlayers()do
+                if not table.find(MULES, player.Name) then
+                    continue
+                end
+                if not player.Character then
+                    continue
+                end
+
+                startTrading(player.Character)
+            end
+        end
+
+        return PetTradingHandler
+    end
 end
 
 if not game:IsLoaded() then
@@ -2364,10 +2382,10 @@ local files = {
         WebhookHandler = __DARKLUA_BUNDLE_MODULES.load('b'),
     },
     {
-        PetTradingHandler = __DARKLUA_BUNDLE_MODULES.load('e'),
+        StartFarmingHandler = __DARKLUA_BUNDLE_MODULES.load('o'),
     },
     {
-        StartFarmingHandler = __DARKLUA_BUNDLE_MODULES.load('p'),
+        PetTradingHandler = __DARKLUA_BUNDLE_MODULES.load('p'),
     },
 }
 
